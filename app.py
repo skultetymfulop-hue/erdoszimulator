@@ -104,7 +104,7 @@ st.title("🌲 Interaktív Erdő Szimulátor")
 st.write("Állítsd be a paramétereket a telefonodon!")
 
 # Paraméterek bekérése
-input_intensity = st.slider("Fa sűrűség", 0.0001, 0.0010, 0.0005, format="%.4f")
+input_intensity = st.slider("Fa sűrűség", 0.0005, 0.0100, 0.0020, format="%.4f")
 input_scale = st.slider("Átlagos magasság (scale)", 10, 50, 20)
 input_clumping = st.slider("Csoportosulás (clumping)", 0.0, 1.0, 0.5)
 input_chewed = st.slider("Rágottsági esély (%)", 0, 100, 70)
@@ -151,4 +151,5 @@ if st.button("SZIMULÁCIÓ INDÍTÁSA 🚀", use_container_width=True):
         st.metric("Transzektben talált fák", f"{int(t_count)} db")
         st.metric("Mintakörökben talált fák", f"{int(c_count)} db")
     else:
+
         st.error("Nem születtek fák ezzel a beállítással!")
