@@ -179,6 +179,30 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
         }
         st.subheader("📊 Becslési eredmények")
         st.table(pd.DataFrame(stats_data))
+        st.markdown("---")
+        st.subheader("🌲 A szimulált erdő fafaj-összetétele")
+        
+        # Egy látványos, színes sávdiagram HTML/CSS segítségével
+        st.markdown(
+            f"""
+            <div style="display: flex; height: 35px; width: 100%; border-radius: 8px; overflow: hidden; border: 2px solid #ddd; margin-bottom: 20px;">
+                <div style="width: {p_ktt}%; background-color: {species_colors['KTT']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_ktt if p_ktt > 5 else ''}%</div>
+                <div style="width: {p_gy}%; background-color: {species_colors['Gy']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_gy if p_gy > 5 else ''}%</div>
+                <div style="width: {p_mj}%; background-color: {species_colors['MJ']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_mj if p_mj > 5 else ''}%</div>
+                <div style="width: {p_mcs}%; background-color: {species_colors['MCs']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_mcs if p_mcs > 5 else ''}%</div>
+                <div style="width: {p_babe}%; background-color: {species_colors['BaBe']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_babe if p_babe > 5 else ''}%</div>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 20px; font-size: 14px;">
+                <span style="color: {species_colors['KTT']};">■ KTT</span>
+                <span style="color: {species_colors['Gy']};">■ Gy</span>
+                <span style="color: {species_colors['MJ']};">■ MJ</span>
+                <span style="color: {species_colors['MCs']};">■ MCs</span>
+                <span style="color: {species_colors['BaBe']};">■ BaBe</span>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
+        st.markdown("---")
 
         # --- 3D ÁBRA ---
         st.subheader("🧊 Az erdő 3D nézete (Fajok szerint)")
@@ -197,6 +221,7 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
         ax3d.legend()
         st.pyplot(fig_3d)
         plt.close(fig_3d)
+
 
 
 
