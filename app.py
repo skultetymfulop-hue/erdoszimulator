@@ -171,14 +171,41 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
     
     if not df.empty:
         # --- STATISZTIKA ---
+       # --- JAVÍTOTT STATISZTIKA ---
         t_df = df[df['T'] == 1]
         c_df = df[df['C'] == 1]
+
+        # Mintakör sűrűség becslése (db/m2)
+        # Külön választjuk a kicsiket és nagyokat a mintában
+        c_large = c_df[c_df['height'] > 50]
+        c_small = c_df[c_df['height'] <= 50]
         
+        # Sűrűség = (Nagyok száma / Nagy kör területe) + (Kicsik száma / Kis körök összterülete)
+        if area_big_circle > 0 and area_small_circles > 0:
+            c_density_estimate = (len(c_large) / area_big_circle) + (len(c_small) / area_small_circles)
+        else:
+            c_density_estimate = 0
+
         stats_data = {
             "Paraméter": ["Egyedszám", "Sűrűség (db/m²)", "Scale (H)", "Rágottság"],
-            "Valódi (S)": [len(df), f"{len(df)/(width*height):.4f}", get_weighted_height_mode(df), f"{df['chewed'].mean()*100:.1f}%"],
-            "Transzekt (T)": [len(t_df), f"{(t_df['height'].apply(lambda h: 1/h).sum()/width) if len(t_df)>0 else 0:.4f}", get_weighted_height_mode(t_df, True), f"{t_df['chewed'].mean()*100 if len(t_df)>0 else 0:.1f}%"],
-            "Mintakör (C)": [len(c_df), "N/A", get_weighted_height_mode(c_df), f"{c_df['chewed'].mean()*100 if len(c_df)>0 else 0:.1f}%"]
+            "Valódi (S)": [
+                len(df), 
+                f"{len(df)/(width*height):.4f}", 
+                get_weighted_height_mode(df), 
+                f"{df['chewed'].mean()*100:.1f}%"
+            ],
+            "Transzekt (T)": [
+                len(t_df), 
+                f"{(t_df['height'].apply(lambda h: 1/h).sum()/width) if len(t_df)>0 else 0:.4f}", 
+                get_weighted_height_mode(t_df, True), 
+                f"{t_df['chewed'].mean()*100 if len(t_df)>0 else 0:.1f}%"
+            ],
+            "Mintakör (C)": [
+                len(c_df), 
+                f"{c_density_estimate:.4f}", # <--- Itt már nem N/A van!
+                get_weighted_height_mode(c_df), 
+                f"{c_df['chewed'].mean()*100 if len(c_df)>0 else 0:.1f}%"
+            ]
         }
         st.subheader("📊 Becslési eredmények")
         st.table(pd.DataFrame(stats_data))
@@ -355,6 +382,7 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
         plt.close(fig_circ)
         
         st.markdown("---")
+
 
 
 
