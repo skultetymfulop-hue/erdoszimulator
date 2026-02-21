@@ -114,30 +114,44 @@ with st.sidebar:
     in_chewed = st.slider("Valódi rágottság (%)", 0, 100, 30)
     
     st.markdown("---")
-    st.subheader("🌿 Fajösszetétel (Dinamikus korláttal)")
+    st.subheader("🌿 Fajösszetétel (Interaktív)")
 
-    # 1. KTT csúszka - ez az alap, 0-100 között bármi lehet
-    p_ktt = st.sidebar.slider("KTT (%)", 0, 100, 20, key="s_ktt")
+    # Session State inicializálása (csak az első futáskor)
+    if 'sp' not in st.session_state:
+        st.session_state.sp = {'KTT': 20, 'Gy': 20, 'MJ': 20, 'MCs': 20}
 
-    # 2. Gy csúszka - a max értéke a maradék (100 - KTT)
-    max_gy = 100 - p_ktt
-    p_gy = st.sidebar.slider("Gy (%)", 0, max_gy, min(20, max_gy), key="s_gy")
+    def update_species(changed_key):
+        # Kiszámoljuk a többi faj összegét
+        current_val = st.session_state[changed_key]
+        others = [k for k in st.session_state.sp.keys() if k != changed_key]
+        other_sum = sum(st.session_state.sp[k] for k in others)
+        
+        # Ha az új értékkel túllépnénk a 100%-ot, arányosan csökkentjük a többit
+        if current_val + other_sum > 100:
+            allowed_for_others = 100 - current_val
+            if other_sum > 0:
+                for k in others:
+                    # Arányos csökkentés, hogy ne lépjük túl a 100-at
+                    new_val = (st.session_state.sp[k] / other_sum) * allowed_for_others
+                    st.session_state.sp[k] = round(new_val)
+            else:
+                for k in others: st.session_state.sp[k] = 0
+        
+        # Frissítjük a megváltozott értéket
+        st.session_state.sp[changed_key] = current_val
 
-    # 3. MJ csúszka - a max értéke a maradék (100 - KTT - Gy)
-    max_mj = 100 - p_ktt - p_gy
-    p_mj = st.sidebar.slider("MJ (%)", 0, max_mj, min(20, max_mj), key="s_mj")
+    # Csúszkák létrehozása a Session State alapján
+    # Itt a max_value mindig 100, de a változás visszahat a többire
+    p_ktt = st.slider("KTT (%)", 0, 100, st.session_state.sp['KTT'], key="KTT", on_change=update_species, args=("KTT",))
+    p_gy = st.slider("Gy (%)", 0, 100, st.session_state.sp['Gy'], key="Gy", on_change=update_species, args=("Gy",))
+    p_mj = st.slider("MJ (%)", 0, 100, st.session_state.sp['MJ'], key="MJ", on_change=update_species, args=("MJ",))
+    p_mcs = st.slider("MCs (%)", 0, 100, st.session_state.sp['MCs'], key="MCs", on_change=update_species, args=("MCs",))
 
-    # 4. MCs csúszka - a max értéke a maradék (100 - KTT - Gy - MJ)
-    max_mcs = 100 - p_ktt - p_gy - p_mj
-    p_mcs = st.sidebar.slider("MCs (%)", 0, max_mcs, min(20, max_mcs), key="s_mcs")
-
-    # 5. BaBe - a végső maradék automatikusan
-    p_babe = 100 - p_ktt - p_gy - p_mj - p_mcs
+    # BaBe kiszámítása (ami marad)
+    p_babe = max(0, 100 - (p_ktt + p_gy + p_mj + p_mcs))
     
-    # Esztétikus visszajelzés
-    st.info(f"Fajok összege: {p_ktt + p_gy + p_mj + p_mcs + p_babe}%")
-    st.success(f"Automatikus BaBe maradék: {p_babe}%")
-
+    st.info(f"BaBe (maradék): {p_babe}%")
+    st.caption(f"Összesen: {p_ktt + p_gy + p_mj + p_mcs + p_babe}%")
 if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
     # Normalizálás a biztonság kedvéért
     raw_probs = np.array([p_ktt, p_gy, p_mj, p_mcs, p_babe], dtype=float)
@@ -183,5 +197,6 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
         ax3d.legend()
         st.pyplot(fig_3d)
         plt.close(fig_3d)
+
 
 
