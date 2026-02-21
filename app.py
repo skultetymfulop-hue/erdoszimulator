@@ -114,7 +114,7 @@ with st.sidebar:
     in_chewed = st.slider("Valódi rágottság (%)", 0, 100, 30)
     
     st.markdown("---")
-   st.subheader("🌿 Fajösszetétel (Dinamikus korláttal)")
+    st.subheader("🌿 Fajösszetétel (Dinamikus korláttal)")
 
     # 1. KTT csúszka - ez az alap, 0-100 között bármi lehet
     p_ktt = st.sidebar.slider("KTT (%)", 0, 100, 20, key="s_ktt")
@@ -183,4 +183,5 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
         ax3d.legend()
         st.pyplot(fig_3d)
         plt.close(fig_3d)
+
 
