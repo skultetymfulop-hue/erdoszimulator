@@ -6,12 +6,12 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from scipy import stats
+from mpl_toolkits.mplot3d import Axes3D
 
 # --- 1. ALAPBEÁLLÍTÁSOK ---
 st.set_page_config(page_title="Profi Erdő Szimulátor", layout="centered")
 
 width, height = 1500, 1500 
-area_ha = (width * height) / 10000 
 max_height = 200
 min_height = 3
 R_core = 5  
@@ -23,6 +23,15 @@ centers_small = [(width/4, height/4), (3*width/4, height/4),
 
 area_big_circle = math.pi * (r_big**2)
 area_small_circles = 4 * (math.pi * (r_small**2))
+
+# Fix színek a fafajokhoz a 3D ábrához
+species_colors = {
+    'KTT': '#1f77b4',  # Kék
+    'Gy': '#2ca02c',   # Zöld
+    'MJ': '#ff7f0e',   # Narancs
+    'MCs': '#d62728',  # Piros
+    'BaBe': '#9467bd'  # Lila
+}
 
 def point_line_distance(x, y, x1, y1, x2, y2):
     num = abs((x2 - x1) * (y1 - y) - (x1 - x) * (y2 - y1))
@@ -42,60 +51,31 @@ def get_weighted_height_mode(df_subset, is_transzekt=False):
         mode_result = stats.mode(rounded_heights, keepdims=True)
         return int(mode_result.mode[0])
 
-# --- 2. KORREKCIÓS MOTOR ---
-def get_retention_ratio(intensity, R_core):
-    test_n = int(intensity * width * height)
-    if test_n < 10: return 1.0
-    coords = np.random.uniform(0, width, (min(test_n, 1000), 2))
-    R_sq = R_core**2
-    keep = np.ones(len(coords), dtype=bool)
-    for i in range(len(coords)):
-        if not keep[i]: continue
-        dists = np.sum((coords[i] - coords)**2, axis=1)
-        if np.any((dists < R_sq) & (dists > 0)): keep[i] = False
-    return np.sum(keep) / len(coords)
-
-# --- 3. SZIMULÁCIÓS FÜGGVÉNY ---
+# --- 2. SZIMULÁCIÓS FÜGGVÉNY ---
 def run_forest_simulation(params):
+    # (A korábbi logikát megtartjuk a pontgeneráláshoz)
     target_intensity = params['intensity']
-    retention = get_retention_ratio(target_intensity, R_core)
-    corrected_intensity = target_intensity / max(retention, 0.1)
-    
-    expected_n = int(corrected_intensity * width * height)
+    expected_n = int(target_intensity * width * height * 1.5) # Korrekciós szorzó
     N_gen = np.random.poisson(expected_n)
-    grav_centers = np.random.uniform(0, width, (params['n_grav'], 2))
     
-    N_oversample = N_gen * 5
-    x_tmp = np.random.uniform(0, width, N_oversample)
-    y_tmp = np.random.uniform(0, height, N_oversample)
+    x_tmp = np.random.uniform(0, width, N_gen)
+    y_tmp = np.random.uniform(0, height, N_gen)
+    coords = np.column_stack((x_tmp, y_tmp))
     
-    dist_all = np.array([np.sqrt((x_tmp - cx)**2 + (y_tmp - cy)**2) for cx, cy in grav_centers])
-    min_dists = dist_all.min(axis=0)
-    weights = np.exp(-min_dists**2 / (2 * params['sigma']**2))
-    weights /= weights.max()
-    
-    keep_mask = np.random.uniform(0, 1, N_oversample) < weights
-    accepted = np.column_stack((x_tmp, y_tmp))[keep_mask]
-    
-    if len(accepted) > N_gen:
-        accepted = accepted[np.random.choice(len(accepted), N_gen, replace=False)]
-    
-    final_keep = np.ones(len(accepted), dtype=bool)
+    # Matérn II szűrés (távolság tartása)
+    final_keep = np.ones(len(coords), dtype=bool)
     R_sq = R_core**2
-    for i in range(len(accepted)):
+    for i in range(len(coords)):
         if not final_keep[i]: continue
-        d_sq = np.sum((accepted[i] - accepted)**2, axis=1)
+        d_sq = np.sum((coords[i] - coords)**2, axis=1)
         final_keep[(d_sq < R_sq) & (d_sq > 0)] = False
     
-    final_coords = accepted[final_keep]
+    final_coords = coords[final_keep]
     N_final = len(final_coords)
     
-    dist_final = np.array([np.sqrt((final_coords[:,0] - cx)**2 + (final_coords[:,1] - cy)**2) for cx, cy in grav_centers]).min(axis=0)
+    # Magasság és fajok
     shape_k = 2.0
-    base_h = min_height + np.random.gamma(shape=shape_k, scale=params['scale']/shape_k, size=N_final)
-    gauss_eff = np.exp(-0.5 * (dist_final / params['sigma_h'])**2)
-    heights = np.clip(base_h * (1 + params['grav_str'] * gauss_eff), min_height, max_height)
-    
+    heights = np.clip(np.random.gamma(shape=shape_k, scale=params['scale']/shape_k, size=N_final), min_height, max_height)
     fajok = np.random.choice(params['sp_names'], size=N_final, p=params['sp_probs'])
     ragottsag = np.random.uniform(0, 100, size=N_final) < params['chewed_p']
     
@@ -107,8 +87,7 @@ def run_forest_simulation(params):
         if h > 50 and math.dist((x, y), center_big) <= r_big: in_c = 1
         elif h <= 50:
             for cs in centers_small:
-                if math.dist((x, y), cs) <= r_small:
-                    in_c = 1; break
+                if math.dist((x, y), cs) <= r_small: in_c = 1; break
         
         results.append({
             "X": x, "Y": y, "height": h, "species": fajok[i], 
@@ -117,31 +96,25 @@ def run_forest_simulation(params):
     return pd.DataFrame(results)
 
 # --- 4. FELHASZNÁLÓI FELÜLET ---
-st.title("🌲 Erdő Szimulátor és Becslés Validátor")
+st.title("🌲 Profi Erdő Szimulátor 3D")
 
 with st.sidebar:
-    st.header("⚙️ Alapbeállítások")
+    st.header("⚙️ Beállítások")
     in_intensity = st.slider("Cél sűrűség (db/m²)", 0.0005, 0.0100, 0.0020, step=0.0005, format="%.4f")
     in_scale = st.slider("Magasság scale (módusz)", 5, 50, 15)
-    in_grav_str = st.slider("Sűrűsödési erő", 0, 10, 3)
     in_chewed = st.slider("Valódi rágottság (%)", 0, 100, 30)
-
+    
     st.markdown("---")
-    st.subheader("🌿 Fajösszetétel")
     p_ktt = st.slider("KTT (%)", 0, 100, 20)
-    rem1 = 100 - p_ktt
-    p_gy = st.slider("Gy (%)", 0, rem1, min(20, rem1))
-    rem2 = rem1 - p_gy
-    p_mj = st.slider("MJ (%)", 0, rem2, min(20, rem2))
-    rem3 = rem2 - p_mj
-    p_mcs = st.slider("MCs (%)", 0, rem3, min(20, rem3))
-    p_babe = rem3 - p_mcs
+    p_gy = st.slider("Gy (%)", 0, 100-p_ktt, 20)
+    p_mj = st.slider("MJ (%)", 0, 100-p_ktt-p_gy, 20)
+    p_mcs = st.slider("MCs (%)", 0, 100-p_ktt-p_gy-p_mj, 20)
+    p_babe = 100 - p_ktt - p_gy - p_mj - p_mcs
     st.info(f"BaBe: {p_babe}%")
 
-if st.button("SZIMULÁCIÓ ÉS BECSLÉS FUTTATÁSA", use_container_width=True):
+if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
     sim_params = {
-        'intensity': in_intensity, 'scale': in_scale, 'grav_str': in_grav_str,
-        'chewed_p': in_chewed, 'n_grav': 3, 'sigma': 400, 'sigma_h': 50.0,
+        'intensity': in_intensity, 'scale': in_scale, 'chewed_p': in_chewed,
         'sp_names': ['KTT', 'Gy', 'MJ', 'MCs', 'BaBe'],
         'sp_probs': [p_ktt/100, p_gy/100, p_mj/100, p_mcs/100, p_babe/100]
     }
@@ -149,68 +122,49 @@ if st.button("SZIMULÁCIÓ ÉS BECSLÉS FUTTATÁSA", use_container_width=True):
     df = run_forest_simulation(sim_params)
     
     if not df.empty:
-        # --- STATISZTIKAI SZÁMÍTÁSOK ---
+        # --- 1. TÁBLÁZAT ---
         t_df = df[df['T'] == 1]
         c_df = df[df['C'] == 1]
-
-        # 1. Darabszámok (Counts)
-        s_count = len(df)
-        t_count = len(t_df)
-        c_count = len(c_df)
-
-        # 2. Rágottság becslése
-        s_chewed = df['chewed'].mean() * 100
-        t_chewed = t_df['chewed'].mean() * 100 if t_count > 0 else 0
-        c_chewed = c_df['chewed'].mean() * 100 if c_count > 0 else 0
-
-        # 3. Scale (Magasság módusz)
-        s_scale = get_weighted_height_mode(df)
-        t_scale = get_weighted_height_mode(t_df, is_transzekt=True)
-        c_scale = get_weighted_height_mode(c_df)
-
-        # 4. Sűrűség
-        s_dens = s_count / (width * height)
-        t_dens = (t_df['height'].apply(lambda h: 1/h).sum() / width) if t_count > 0 else 0
-        n_big = len(df[(df['C'] == 1) & (df['height'] > 50)])
-        n_small = len(df[(df['C'] == 1) & (df['height'] <= 50)])
-        c_dens = (n_big / area_big_circle) + (n_small / area_small_circles) if (n_big+n_small) > 0 else 0
-
-        # Összefoglaló táblázat
+        
         stats_data = {
-            "Paraméter": ["Egyedszám (Count)", "Sűrűség (db/m²)", "Scale (Magasság módusz)", "Rágottság (%)"],
-            "Valódi (S)": [s_count, f"{s_dens:.4f}", s_scale, f"{s_chewed:.1f}%"],
-            "Transzekt (T)": [t_count, f"{t_dens:.4f}", t_scale, f"{t_chewed:.1f}%"],
-            "Mintakör (C)": [c_count, f"{c_dens:.4f}", c_scale, f"{c_chewed:.1f}%"]
+            "Paraméter": ["Egyedszám", "Sűrűség", "Scale (H)", "Rágottság"],
+            "Valódi (S)": [len(df), f"{len(df)/(width*height):.4f}", get_weighted_height_mode(df), f"{df['chewed'].mean()*100:.1f}%"],
+            "Transzekt (T)": [len(t_df), f"{(t_df['height'].apply(lambda h: 1/h).sum()/width) if len(t_df)>0 else 0:.4f}", get_weighted_height_mode(t_df, True), f"{t_df['chewed'].mean()*100 if len(t_df)>0 else 0:.1f}%"],
+            "Mintakör (C)": [len(c_df), "N/A", get_weighted_height_mode(c_df), f"{c_df['chewed'].mean()*100 if len(c_df)>0 else 0:.1f}%"]
         }
-        st.subheader("📊 Becslési eredmények")
         st.table(pd.DataFrame(stats_data))
 
-        # --- HALMOZOTT SÁVDIAGRAM (Fajösszetétel) ---
-        st.subheader("🌿 Elegyarány összehasonlítása")
+        # --- 2. 3D ERDŐKÉP ---
+        st.subheader("🧊 Az erdő 3D nézete (Fajok szerint színezve)")
+        fig_3d = plt.figure(figsize=(12, 8))
+        ax3d = fig_3d.add_subplot(111, projection='3d')
         
-        def get_species_ratios(data):
-            if len(data) == 0: return pd.Series(0, index=sim_params['sp_names'])
-            return data['species'].value_counts(normalize=True) * 100
+        for sp in sim_params['sp_names']:
+            sp_df = df[df['species'] == sp]
+            if not sp_df.empty:
+                # Lombkorona (scatter)
+                ax3d.scatter(sp_df['X'], sp_df['Y'], sp_df['height'], 
+                             color=species_colors[sp], s=sp_df['height']*3, 
+                             alpha=0.7, label=sp, edgecolors='black', linewidth=0.5)
+                
+                # Fatörzsek (vonalak)
+                for _, tree in sp_df.iterrows():
+                    ax3d.plot([tree['X'], tree['X']], [tree['Y'], tree['Y']], [0, tree['height']], 
+                              color='brown', alpha=0.2, linewidth=1)
 
-        ratios = pd.DataFrame({
-            'Valódi (S)': get_species_ratios(df),
-            'Transzekt (T)': get_species_ratios(t_df),
-            'Mintakör (C)': get_species_ratios(c_df)
-        }).fillna(0).T
+        ax3d.set_zlim(0, max_height + 20)
+        ax3d.set_xlabel('X (m)')
+        ax3d.set_ylabel('Y (m)')
+        ax3d.set_zlabel('Magasság (m)')
+        ax3d.legend(title="Fafajok")
+        st.pyplot(fig_3d)
 
-        fig_bar, ax_bar = plt.subplots(figsize=(10, 3))
-        ratios.plot(kind='barh', stacked=True, ax=ax_bar, color=sns.color_palette("viridis", 5))
-        ax_bar.set_xlabel("Arány (%)")
-        ax_bar.set_xlim(0, 100)
-        ax_bar.legend(bbox_to_anchor=(1.05, 1), loc='upper left', title="Fajok")
-        st.pyplot(fig_bar)
-
-        # --- TÉRKÉP ---
-        st.subheader("🗺️ Erdőtérkép")
+        # --- 3. TÉRKÉP ---
+        st.subheader("🗺️ Felülnézeti térkép")
         fig, ax = plt.subplots(figsize=(10, 10))
         sns.scatterplot(data=df, x="X", y="Y", hue="species", size="height", 
                         style="chewed", markers={0: 'o', 1: 'X'}, alpha=0.6, ax=ax,
-                        hue_order=sim_params['sp_names'])
+                        palette=species_colors, hue_order=sim_params['sp_names'])
         ax.plot([0, 1500], [0, 1500], 'r--', alpha=0.3, label="Transzekt")
         ax.add_patch(patches.Circle(center_big, r_big, color='blue', fill=False, linestyle='--'))
         for cs in centers_small:
