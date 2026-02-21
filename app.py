@@ -5,26 +5,47 @@ import math
 import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
+from scipy import stats
 
 # --- 1. ALAPBEÁLLÍTÁSOK ---
 st.set_page_config(page_title="Profi Erdő Szimulátor", layout="centered")
 
-width, height = 1500, 1500
+width, height = 1500, 1500 # m (vagy cm, a lényeg az arány)
+area_ha = (width * height) / 10000 # Terület hektárban a sűrűséghez
 max_height = 200
 min_height = 3
-R_core = 5  # Minimum távolság két fa között (cm/pixel)
+R_core = 5  
 center_big = (width/2, height/2)
 r_big = 564
 r_small = 126
 centers_small = [(width/4, height/4), (3*width/4, height/4), 
                  (width/4, 3*height/4), (3*width/4, 3*height/4)]
 
+# Mintaterületek mérete (m2)
+area_big_circle = math.pi * (r_big**2)
+area_small_circles = 4 * (math.pi * (r_small**2))
+# A transzekt területe dinamikus (szélessége = fa magassága), így azt a ciklusban számoljuk
+
 def point_line_distance(x, y, x1, y1, x2, y2):
     num = abs((x2 - x1) * (y1 - y) - (x1 - x) * (y2 - y1))
     den = math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
     return num / den
 
-# --- 2. KORREKCIÓS MOTOR (Matérn szűrés kompenzálása) ---
+def get_weighted_height_mode(df_subset, is_transzekt=False):
+    if len(df_subset) == 0: return 0
+    rounded_heights = df_subset['height'].round()
+    if is_transzekt:
+        # Horvitz-Thompson korrekció: 1/h súlyozás
+        weights = 1 / df_subset['height']
+        counts = {}
+        for h, w in zip(rounded_heights, weights):
+            counts[h] = counts.get(h, 0) + w
+        return int(max(counts, key=counts.get))
+    else:
+        mode_result = stats.mode(rounded_heights, keepdims=True)
+        return int(mode_result.mode[0])
+
+# --- 2. KORREKCIÓS MOTOR ---
 def get_retention_ratio(intensity, R_core):
     test_n = int(intensity * width * height)
     if test_n < 10: return 1.0
@@ -45,7 +66,6 @@ def run_forest_simulation(params):
     
     expected_n = int(corrected_intensity * width * height)
     N_gen = np.random.poisson(expected_n)
-    
     grav_centers = np.random.uniform(0, width, (params['n_grav'], 2))
     
     N_oversample = N_gen * 5
@@ -101,78 +121,76 @@ def run_forest_simulation(params):
     return pd.DataFrame(results)
 
 # --- 4. FELHASZNÁLÓI FELÜLET ---
-st.title("🌲 Profi Erdő Szimulátor v2.0")
+st.title("🌲 Erdő Szimulátor és Becslés Validátor")
 
 with st.sidebar:
     st.header("⚙️ Alapbeállítások")
-    # Itt hoztuk létre a hiányzó változókat
-    in_intensity = st.slider("Fa sűrűség (db/m²)", 0.0005, 0.0100, 0.0020, step=0.0005, format="%.4f")
-    in_scale = st.slider("Magasság alapérték (scale)", 5, 50, 15)
-    in_grav_str = st.slider("Sűrűsödés (gravitációs erő)", 0, 10, 3)
-    in_chewed = st.slider("Globális rágottság (%)", 0, 100, 30)
+    in_intensity = st.slider("Cél sűrűség (db/m²)", 0.0005, 0.0100, 0.0020, step=0.0005, format="%.4f")
+    in_scale = st.slider("Magasság scale (módusz)", 5, 50, 15)
+    in_grav_str = st.slider("Sűrűsödési erő", 0, 10, 3)
+    in_chewed = st.slider("Valódi rágottság (%)", 0, 100, 30)
 
     st.markdown("---")
-    st.subheader("🌿 Fajösszetétel eloszlása")
-    
-    # Dinamikus csúszkák a 100% eléréséhez
+    st.subheader("🌿 Fajösszetétel")
     p_ktt = st.slider("KTT (%)", 0, 100, 20)
     rem1 = 100 - p_ktt
-    
     p_gy = st.slider("Gy (%)", 0, rem1, min(20, rem1))
     rem2 = rem1 - p_gy
-    
     p_mj = st.slider("MJ (%)", 0, rem2, min(20, rem2))
     rem3 = rem2 - p_mj
-    
     p_mcs = st.slider("MCs (%)", 0, rem3, min(20, rem3))
-    rem4 = rem3 - p_mcs
-    
-    p_babe = rem4
-    st.info(f"BaBe (maradék): {p_babe}%")
-    
-    total_p = p_ktt + p_gy + p_mj + p_mcs + p_babe
-    st.write(f"**Összesen: {total_p}%**")
+    p_babe = rem3 - p_mcs
+    st.info(f"BaBe: {p_babe}%")
 
-# Szimuláció indítása
-if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True) and total_p == 100:
+if st.button("SZIMULÁCIÓ ÉS BECSLÉS FUTTATÁSA", use_container_width=True):
     sim_params = {
-        'intensity': in_intensity, 
-        'scale': in_scale, 
-        'grav_str': in_grav_str,
-        'chewed_p': in_chewed, 
-        'n_grav': 3, 
-        'sigma': 400, 
-        'sigma_h': 50.0,
+        'intensity': in_intensity, 'scale': in_scale, 'grav_str': in_grav_str,
+        'chewed_p': in_chewed, 'n_grav': 3, 'sigma': 400, 'sigma_h': 50.0,
         'sp_names': ['KTT', 'Gy', 'MJ', 'MCs', 'BaBe'],
         'sp_probs': [p_ktt/100, p_gy/100, p_mj/100, p_mcs/100, p_babe/100]
     }
     
-    with st.spinner("Erdő generálása..."):
-        df = run_forest_simulation(sim_params)
+    df = run_forest_simulation(sim_params)
     
     if not df.empty:
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Összes fa", len(df))
-            st.metric("Transzekt találat", int(df['T'].sum()))
-        with col2:
-            st.metric("Rágott egyedek", int(df['chewed'].sum()))
-            st.metric("Kör találat", int(df['C'].sum()))
+        # --- STATISZTIKAI SZÁMÍTÁSOK ---
+        # 1. Rágottság becslése
+        s_chewed = df['chewed'].mean() * 100
+        t_df = df[df['T'] == 1]
+        t_chewed = t_df['chewed'].mean() * 100 if len(t_df) > 0 else 0
+        c_df = df[df['C'] == 1]
+        c_chewed = c_df['chewed'].mean() * 100 if len(c_df) > 0 else 0
 
-        # Vizualizáció
+        # 2. Scale (Magasság módusz) becslése
+        s_scale = get_weighted_height_mode(df)
+        t_scale = get_weighted_height_mode(t_df, is_transzekt=True)
+        c_scale = get_weighted_height_mode(c_df)
+
+        # 3. Sűrűség becslése (db/m2)
+        s_dens = len(df) / (width * height)
+        # Transzekt sűrűség: sum(1/h) / L
+        t_dens = (t_df['height'].apply(lambda h: 1/h).sum() / width) if len(t_df) > 0 else 0
+        # Kör sűrűség: (N_nagy + N_kicsik) / (Area_nagy + Area_kicsik)
+        # (Ez egy egyszerűsített becslés a kevert körökre)
+        n_big = len(df[(df['C'] == 1) & (df['height'] > 50)])
+        n_small = len(df[(df['C'] == 1) & (df['height'] <= 50)])
+        c_dens = (n_big / area_big_circle) + (n_small / area_small_circles) if (n_big+n_small) > 0 else 0
+
+        # Összefoglaló táblázat
+        stats_data = {
+            "Paraméter": ["Sűrűség (db/m²)", "Scale (Magasság módusz)", "Rágottság (%)"],
+            "Valódi (S)": [f"{s_dens:.4f}", s_scale, f"{s_chewed:.1f}%"],
+            "Transzekt (T)": [f"{t_dens:.4f}", t_scale, f"{t_chewed:.1f}%"],
+            "Mintakör (C)": [f"{c_dens:.4f}", c_scale, f"{c_chewed:.1f}%"]
+        }
+        st.table(pd.DataFrame(stats_data))
+
+        # Megjelenítés
         fig, ax = plt.subplots(figsize=(10, 10))
         sns.scatterplot(data=df, x="X", y="Y", hue="species", size="height", 
                         style="chewed", markers={0: 'o', 1: 'X'}, alpha=0.6, ax=ax)
-        
-        # Mintavételi területek jelölése
         ax.plot([0, 1500], [0, 1500], 'r--', alpha=0.3, label="Transzekt")
-        ax.add_patch(patches.Circle(center_big, r_big, color='blue', fill=False, linestyle='--', label="Nagy kör"))
+        ax.add_patch(patches.Circle(center_big, r_big, color='blue', fill=False, linestyle='--'))
         for cs in centers_small:
-            ax.add_patch(patches.Circle(cs, r_small, color='green', fill=False, label="Kis körök"))
-            
-        ax.set_xlim(0, 1500)
-        ax.set_ylim(0, 1500)
-        ax.set_aspect('equal')
+            ax.add_patch(patches.Circle(cs, r_small, color='green', fill=False))
         st.pyplot(fig)
-    else:
-        st.error("Nem sikerült fákat generálni. Próbáld nagyobb sűrűséggel!")
