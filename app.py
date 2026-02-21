@@ -5,22 +5,14 @@ import math
 import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-from mpl_toolkits.mplot3d import Axes3D
 
-# --- 1. KONFIGURÁCIÓ ÉS SEGÉDFÜGGVÉNYEK ---
-st.set_page_config(page_title="Erdő Szimulátor", layout="centered")
+# --- 1. ALAPBEÁLLÍTÁSOK ---
+st.set_page_config(page_title="Profi Erdő Szimulátor", layout="centered")
 
-# Globális állandók
 width, height = 1500, 1500
 max_height = 200
-h_min = 3
-R_core = 5
-n_gravity_points = 3
-gravity_strength = 3
-sigma = 400
-sigma_height = 50.0
-
-# Mintakörök geometriája
+min_height = 3
+R_core = 5  # Minimum távolság két fa között (cm/pixel)
 center_big = (width/2, height/2)
 r_big = 564
 r_small = 126
@@ -32,125 +24,159 @@ def point_line_distance(x, y, x1, y1, x2, y2):
     den = math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
     return num / den
 
-# --- 2. A MOTOR (Szimulációs függvény) ---
-def run_simulation(params):
-    scale = params['scale']
-    target_intensity = params['intensity'] 
-    clumping = params.get('clumping_factor', 0.5)
-    species = params['species']
-    species_probs = params['species_probs']
-    chewed_probs_map = params['chewed_probs']
+# --- 2. KORREKCIÓS MOTOR (Matérn szűrés kompenzálása) ---
+def get_retention_ratio(intensity, R_core):
+    # Gyorsított becslés a veszteségre
+    test_n = int(intensity * width * height)
+    if test_n < 10: return 1.0
+    coords = np.random.uniform(0, width, (min(test_n, 1000), 2))
+    R_sq = R_core**2
+    keep = np.ones(len(coords), dtype=bool)
+    for i in range(len(coords)):
+        if not keep[i]: continue
+        dists = np.sum((coords[i] - coords)**2, axis=1)
+        if np.any((dists < R_sq) & (dists > 0)): keep[i] = False
+    return np.sum(keep) / len(coords)
 
-    expected_trees = target_intensity * width * height
-    N_trees = np.random.poisson(expected_trees)
+# --- 3. SZIMULÁCIÓS FÜGGVÉNY ---
+def run_forest_simulation(params):
+    target_intensity = params['intensity']
+    # Intenzitás korrekció, hogy a szűrés után is annyi fa maradjon, amennyit kértünk
+    retention = get_retention_ratio(target_intensity, R_core)
+    corrected_intensity = target_intensity / max(retention, 0.1)
     
-    if N_trees == 0: return pd.DataFrame(), np.array([])
-
-    gravity_centers = np.random.uniform(0, width, (n_gravity_points, 2))
-
-    # Pontok generálása
-    if clumping == 0:
-        x_coords = np.random.uniform(0, width, N_trees)
-        y_coords = np.random.uniform(0, height, N_trees)
-    else:
-        N_oversample = int(max(N_trees * 5, 1000)) 
-        x_temp = np.random.uniform(0, width, N_oversample)
-        y_temp = np.random.uniform(0, height, N_oversample)
-        dist_all = np.array([np.sqrt((x_temp - cx)**2 + (y_temp - cy)**2) for cx, cy in gravity_centers])
-        dist_min = dist_all.min(axis=0)
-        weights = np.exp(-dist_min**2 / (2 * sigma**2))
-        normalized_weights = weights / np.max(weights)
-        keep_mask = np.random.uniform(0, 1, N_oversample) > (clumping * (1 - normalized_weights))
-        accepted = np.column_stack((x_temp, y_temp))[keep_mask]
-        if len(accepted) > N_trees:
-            accepted = accepted[np.random.choice(len(accepted), N_trees, replace=False)]
-        x_coords, y_coords = accepted[:, 0], accepted[:, 1]
-
-    # Magasság és Fafaj
-    N_final = len(x_coords)
-    dist_all_final = np.array([np.sqrt((x_coords - cx)**2 + (y_coords - cy)**2) for cx, cy in gravity_centers])
-    dist_min_final = dist_all_final.min(axis=0)
-    base_h = np.random.exponential(scale=scale, size=N_final)
-    gauss_eff = np.exp(-0.5 * (dist_min_final / sigma_height)**2)
-    heights = np.clip(base_h * (1 + gravity_strength * gauss_eff), h_min, max_height)
+    expected_n = int(corrected_intensity * width * height)
+    N_gen = np.random.poisson(expected_n)
     
-    assigned_species = np.random.choice(species, size=N_final, p=species_probs)
-    chewed_probs = np.array([chewed_probs_map.get(s, 0) / 100 for s in assigned_species])
-    is_chewed = np.random.uniform(0, 1, size=N_final) < chewed_probs
-
-    # Matern II szűrés és mintavétel (leegyszerűsítve az apphoz)
-    trees_df = pd.DataFrame({'X': x_coords, 'Y': y_coords, 'H': heights, 'F': assigned_species, 'R': is_chewed})
+    # Gravitációs pontok generálása
+    grav_centers = np.random.uniform(0, width, (params['n_grav'], 2))
     
-    sampled = []
-    for _, tree in trees_df.iterrows():
-        d_tr = point_line_distance(tree['X'], tree['Y'], 0, 0, width, height)
-        in_tr = 1 if d_tr <= tree['H'] else 0
+    # Pontok generálása csoportosulással
+    N_oversample = N_gen * 5
+    x_tmp = np.random.uniform(0, width, N_oversample)
+    y_tmp = np.random.uniform(0, height, N_oversample)
+    
+    # Csoportosulás számítása
+    dist_all = np.array([np.sqrt((x_tmp - cx)**2 + (y_tmp - cy)**2) for cx, cy in grav_centers])
+    min_dists = dist_all.min(axis=0)
+    weights = np.exp(-min_dists**2 / (2 * params['sigma']**2))
+    weights /= weights.max()
+    
+    # Sűrűsödési erő alkalmazása
+    keep_mask = np.random.uniform(0, 1, N_oversample) < weights
+    accepted = np.column_stack((x_tmp, y_tmp))[keep_mask]
+    
+    if len(accepted) > N_gen:
+        accepted = accepted[np.random.choice(len(accepted), N_gen, replace=False)]
+    
+    # Matérn szűrés (ne legyenek túl közel)
+    final_keep = np.ones(len(accepted), dtype=bool)
+    R_sq = R_core**2
+    for i in range(len(accepted)):
+        if not final_keep[i]: continue
+        d_sq = np.sum((accepted[i] - accepted)**2, axis=1)
+        final_keep[(d_sq < R_sq) & (d_sq > 0)] = False
+    
+    final_coords = accepted[final_keep]
+    N_final = len(final_coords)
+    
+    # Magasság (Gamma eloszlás + Gravitációs hatás)
+    dist_final = np.array([np.sqrt((final_coords[:,0] - cx)**2 + (final_coords[:,1] - cy)**2) for cx, cy in grav_centers]).min(axis=0)
+    shape_k = 2.0
+    base_h = min_height + np.random.gamma(shape=shape_k, scale=params['scale']/shape_k, size=N_final)
+    gauss_eff = np.exp(-0.5 * (dist_final / params['sigma_h'])**2)
+    heights = np.clip(base_h * (1 + params['grav_str'] * gauss_eff), min_height, max_height)
+    
+    # Fajok és rágottság
+    fajok = np.random.choice(params['sp_names'], size=N_final, p=params['sp_probs'])
+    ragottsag = np.random.uniform(0, 100, size=N_final) < params['chewed_p']
+    
+    # Mintavétel ellenőrzése
+    results = []
+    for i in range(N_final):
+        x, y, h = final_coords[i,0], final_coords[i,1], heights[i]
+        
+        # Transzekt
+        in_t = 1 if point_line_distance(x, y, 0, 0, width, height) <= h else 0
+        
+        # Mintakör
         in_c = 0
-        dist_c = math.dist((tree['X'], tree['Y']), center_big)
-        if tree['H'] > 50 and dist_c <= r_big: in_c = 1
-        elif tree['H'] <= 50:
+        if h > 50 and math.dist((x, y), center_big) <= r_big: in_c = 1
+        elif h <= 50:
             for cs in centers_small:
-                if math.dist((tree['X'], tree['Y']), cs) <= r_small:
+                if math.dist((x, y), cs) <= r_small:
                     in_c = 1; break
         
-        sampled.append({
-            "X": tree['X'], "Y": tree['Y'], "Transzekt": in_tr,
-            "Mintakör": in_c, "Magasság": tree['H'], "Rágottság": int(tree['R']), "Faj": tree['F']
+        results.append({
+            "X": x, "Y": y, "height": h, "species": fajok[i], 
+            "chewed": int(ragottsag[i]), "T": in_t, "C": in_c
         })
-    return pd.DataFrame(sampled), gravity_centers
+        
+    return pd.DataFrame(results)
 
-# --- 3. FELHASZNÁLÓI FELÜLET (UI) ---
-st.title("🌲 Interaktív Erdő Szimulátor")
-st.write("Állítsd be a paramétereket a telefonodon!")
+# --- 4. FELHASZNÁLÓI FELÜLET ---
+st.title("🌲 Profi Erdő Szimulátor v2.0")
 
-# Paraméterek bekérése
-input_intensity = st.slider("Fa sűrűség", 0.0005, 0.0100, 0.0020, step=0.0005, format="%.4f")
-input_scale = st.slider("Átlagos magasság (scale)", 10, 50, 20)
-input_clumping = st.slider("Csoportosulás (clumping)", 0.0, 1.0, 0.5)
-input_chewed = st.slider("Rágottsági esély (%)", 0, 100, 70)
+with st.sidebar:
+    st.header("⚙️ Beállítások")
+    # ... (a többi csúszka marad)
 
-if st.button("SZIMULÁCIÓ INDÍTÁSA 🚀", use_container_width=True):
-    params = {
-        'scale': input_scale,
-        'intensity': input_intensity,
-        'clumping_factor': input_clumping,
-        'species': ['GY'],
-        'species_probs': np.array([1.0]),
-        'chewed_probs': {'GY': input_chewed}
+    st.subheader("🌿 Fajösszetétel eloszlása")
+    
+    # 5 darab csúszka, amik összege 100 kell legyen
+    p_ktt = st.slider("KTT (%)", 0, 100, 20)
+    # Kiszámoljuk, mennyi maradt a többihez
+    rem1 = 100 - p_ktt
+    
+    p_gy = st.slider("Gy (%)", 0, rem1, min(20, rem1))
+    rem2 = rem1 - p_gy
+    
+    p_mj = st.slider("MJ (%)", 0, rem2, min(20, rem2))
+    rem3 = rem2 - p_mj
+    
+    p_mcs = st.slider("MCs (%)", 0, rem3, min(20, rem3))
+    rem4 = rem3 - p_mcs
+    
+    p_babe = rem4  # Ami maradt, az automatikusan a BaBe
+    
+    st.info(f"BaBe (maradék): {p_babe}%")
+    
+    total_p = p_ktt + p_gy + p_mj + p_mcs + p_babe
+    st.write(f"**Összesen: {total_p}%**")
+if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True) and total_p == 100:
+    sim_params = {
+        'intensity': in_intensity, 'scale': in_scale, 'grav_str': in_grav_str,
+        'chewed_p': in_chewed, 'n_grav': 3, 'sigma': 400, 'sigma_h': 50.0,
+        'sp_names': ['KTT', 'Gy', 'MJ', 'MCs', 'BaBe'],
+        'sp_probs': [p_ktt/100, p_gy/100, p_mj/100, p_mcs/100, p_babe/100]
     }
-
-    with st.spinner('Erdő növesztése...'):
-        df, gravs = run_simulation(params)
-
+    
+    with st.spinner("Erdő generálása..."):
+        df = run_forest_simulation(sim_params)
+    
     if not df.empty:
-        # 1. Grafikon: Transzekt nézet
-        st.subheader("1. Transzekt mintavétel")
-        fig1, ax1 = plt.subplots(figsize=(8,8))
-        sns.scatterplot(data=df, x="X", y="Y", hue="Transzekt", palette={0: "gray", 1: "red"}, 
-                        size="Magasság", style="Rágottság", markers={0: 'o', 1: '^'}, alpha=0.7, ax=ax1)
-        ax1.plot([0, 1500], [0, 1500], color='black', linestyle='--')
-        ax1.set_aspect('equal')
-        st.pyplot(fig1)
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("Összes fa", len(df))
+            st.metric("Transzekt találat", df['T'].sum())
+        with col2:
+            st.metric("Rágott egyedek", df['chewed'].sum())
+            st.metric("Kör találat", df['C'].sum())
 
-        # 2. Grafikon: Mintakör nézet
-        st.subheader("2. Mintakörös mintavétel")
-        fig2, ax2 = plt.subplots(figsize=(8,8))
-        sns.scatterplot(data=df, x="X", y="Y", hue="Mintakör", palette={0: "lightgray", 1: "#3498db"}, 
-                        size="Magasság", style="Rágottság", markers={0: 'o', 1: '^'}, alpha=0.7, ax=ax2)
-        # Körök berajzolása
-        ax2.add_patch(patches.Circle(center_big, r_big, color='navy', fill=False, linestyle='--'))
+        # Vizualizáció
+        fig, ax = plt.subplots(figsize=(10, 10))
+        sns.scatterplot(data=df, x="X", y="Y", hue="species", size="height", 
+                        style="chewed", markers={0: 'o', 1: 'X'}, alpha=0.6, ax=ax)
+        
+        # Mintavételi területek jelölése
+        ax.plot([0, 1500], [0, 1500], 'r--', alpha=0.3, label="Transzekt")
+        ax.add_patch(patches.Circle(center_big, r_big, color='blue', fill=False, linestyle='--', label="Nagy kör"))
         for cs in centers_small:
-            ax2.add_patch(patches.Circle(cs, r_small, color='dodgerblue', fill=False, linestyle=':'))
-        ax2.set_aspect('equal')
-        st.pyplot(fig2)
-
-        # 3. Statisztika: Darabszámok
-        st.subheader("3. Mérési eredmények")
-        t_count = df['Transzekt'].sum()
-        c_count = df['Mintakör'].sum()
-        st.metric("Transzektben talált fák", f"{int(t_count)} db")
-        st.metric("Mintakörökben talált fák", f"{int(c_count)} db")
+            ax.add_patch(patches.Circle(cs, r_small, color='green', fill=False, label="Kis körök"))
+            
+        ax.set_xlim(0, 1500)
+        ax.set_ylim(0, 1500)
+        ax.set_aspect('equal')
+        st.pyplot(fig)
     else:
-
-        st.error("Nem születtek fák ezzel a beállítással!")
-
+        st.error("Nem sikerült fákat generálni. Próbáld nagyobb sűrűséggel!")
