@@ -164,5 +164,55 @@ if st.button("SZIMULÁCIÓ ÉS BECSLÉS FUTTATÁSA", use_container_width=True):
         c_chewed = c_df['chewed'].mean() * 100 if c_count > 0 else 0
 
         # 3. Scale (Magasság módusz)
-        s_
-      
+        s_scale = get_weighted_height_mode(df)
+        t_scale = get_weighted_height_mode(t_df, is_transzekt=True)
+        c_scale = get_weighted_height_mode(c_df)
+
+        # 4. Sűrűség
+        s_dens = s_count / (width * height)
+        t_dens = (t_df['height'].apply(lambda h: 1/h).sum() / width) if t_count > 0 else 0
+        n_big = len(df[(df['C'] == 1) & (df['height'] > 50)])
+        n_small = len(df[(df['C'] == 1) & (df['height'] <= 50)])
+        c_dens = (n_big / area_big_circle) + (n_small / area_small_circles) if (n_big+n_small) > 0 else 0
+
+        # Összefoglaló táblázat
+        stats_data = {
+            "Paraméter": ["Egyedszám (Count)", "Sűrűség (db/m²)", "Scale (Magasság módusz)", "Rágottság (%)"],
+            "Valódi (S)": [s_count, f"{s_dens:.4f}", s_scale, f"{s_chewed:.1f}%"],
+            "Transzekt (T)": [t_count, f"{t_dens:.4f}", t_scale, f"{t_chewed:.1f}%"],
+            "Mintakör (C)": [c_count, f"{c_dens:.4f}", c_scale, f"{c_chewed:.1f}%"]
+        }
+        st.subheader("📊 Becslési eredmények")
+        st.table(pd.DataFrame(stats_data))
+
+        # --- HALMOZOTT SÁVDIAGRAM (Fajösszetétel) ---
+        st.subheader("🌿 Elegyarány összehasonlítása")
+        
+        def get_species_ratios(data):
+            if len(data) == 0: return pd.Series(0, index=sim_params['sp_names'])
+            return data['species'].value_counts(normalize=True) * 100
+
+        ratios = pd.DataFrame({
+            'Valódi (S)': get_species_ratios(df),
+            'Transzekt (T)': get_species_ratios(t_df),
+            'Mintakör (C)': get_species_ratios(c_df)
+        }).fillna(0).T
+
+        fig_bar, ax_bar = plt.subplots(figsize=(10, 3))
+        ratios.plot(kind='barh', stacked=True, ax=ax_bar, color=sns.color_palette("viridis", 5))
+        ax_bar.set_xlabel("Arány (%)")
+        ax_bar.set_xlim(0, 100)
+        ax_bar.legend(bbox_to_anchor=(1.05, 1), loc='upper left', title="Fajok")
+        st.pyplot(fig_bar)
+
+        # --- TÉRKÉP ---
+        st.subheader("🗺️ Erdőtérkép")
+        fig, ax = plt.subplots(figsize=(10, 10))
+        sns.scatterplot(data=df, x="X", y="Y", hue="species", size="height", 
+                        style="chewed", markers={0: 'o', 1: 'X'}, alpha=0.6, ax=ax,
+                        hue_order=sim_params['sp_names'])
+        ax.plot([0, 1500], [0, 1500], 'r--', alpha=0.3, label="Transzekt")
+        ax.add_patch(patches.Circle(center_big, r_big, color='blue', fill=False, linestyle='--'))
+        for cs in centers_small:
+            ax.add_patch(patches.Circle(cs, r_small, color='green', fill=False))
+        st.pyplot(fig)
