@@ -104,105 +104,33 @@ def run_forest_simulation(params):
     return pd.DataFrame(results)
 
 # --- 3. FELHASZNÁLÓI FELÜLET ---
-with st.sidebar:
-    st.header("⚙️ Beállítások")
-    in_intensity = st.slider("Cél sűrűség (db/m²)", 0.0005, 0.0100, 0.0020, step=0.0005, format="%.4f")
-    in_scale = st.slider("Magasság scale (módusz)", 5, 50, 15)
-    in_grav_str = st.slider("Sűrűsödési erő", 0, 10, 3)
-    in_chewed = st.slider("Valódi rágottság (%)", 0, 100, 30)
-    in_runs = st.slider("Szimulációs futások száma", 2, 100, 5)
-    
-    st.markdown("---")
-    st.subheader("🌿 Fajösszetétel (Interaktív)")
+my_bar.empty()
 
-    if 'KTT' not in st.session_state: st.session_state['KTT'] = 20
-    if 'Gy' not in st.session_state: st.session_state['Gy'] = 20
-    if 'MJ' not in st.session_state: st.session_state['MJ'] = 20
-    if 'MCs' not in st.session_state: st.session_state['MCs'] = 20
-
-    def sync_sliders(changed_key):
-        current_total = st.session_state['KTT'] + st.session_state['Gy'] + st.session_state['MJ'] + st.session_state['MCs']
-        if current_total > 100:
-            excess = current_total - 100
-            others = [k for k in ['KTT', 'Gy', 'MJ', 'MCs'] if k != changed_key]
-            for k in others:
-                if st.session_state[k] >= excess:
-                    st.session_state[k] -= excess
-                    excess = 0
-                    break
-                else:
-                    excess -= st.session_state[k]
-                    st.session_state[k] = 0
-
-    p_ktt = st.slider("KTT (%)", 0, 100, key='KTT', on_change=sync_sliders, args=('KTT',))
-    p_gy = st.slider("Gy (%)", 0, 100, key='Gy', on_change=sync_sliders, args=('Gy',))
-    p_mj = st.slider("MJ (%)", 0, 100, key='MJ', on_change=sync_sliders, args=('MJ',))
-    p_mcs = st.slider("MCs (%)", 0, 100, key='MCs', on_change=sync_sliders, args=('MCs',))
-    p_babe = max(0, 100 - (p_ktt + p_gy + p_mj + p_mcs))
-    st.info(f"BaBe (maradék): {p_babe}%")
-
-# --- SZIMULÁCIÓ ÉS MEGJELENÍTÉS ---
-if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
-    raw_probs = np.array([p_ktt, p_gy, p_mj, p_mcs, p_babe], dtype=float)
-    corrected_probs = raw_probs / raw_probs.sum()
-
-    sim_params = {
-        'intensity': in_intensity, 'scale': in_scale, 'grav_str': in_grav_str,
-        'chewed_p': in_chewed,
-        'sp_names': ['KTT', 'Gy', 'MJ', 'MCs', 'BaBe'],
-        'sp_probs': corrected_probs 
-    }
-    
-    all_runs_stats = []
-    first_df = None 
-
-    progress_text = "Szimulációk futtatása folyamatban..."
-    my_bar = st.progress(0, text=progress_text)
-    
-    for i in range(in_runs):
-        current_df = run_forest_simulation(sim_params)
-        if i == 0:
-            first_df = current_df 
-        
-        t_df_curr = current_df[current_df['T'] == 1]
-        c_df_curr = current_df[current_df['C'] == 1]
-        
-        c_large = c_df_curr[c_df_curr['height'] > 50]
-        c_small = c_df_curr[c_df_curr['height'] <= 50]
-        c_dens = (len(c_large) / area_big_circle) + (len(c_small) / area_small_circles) if area_big_circle > 0 else 0
-        
-        all_runs_stats.append({
-            'valodi_dens': len(current_df)/(width*height),
-            'valodi_chew': current_df['chewed'].mean() * 100,
-            'trans_dens': (t_df_curr['height'].apply(lambda h: 1/h).sum()/width) if len(t_df_curr)>0 else 0,
-            'trans_chew': t_df_curr['chewed'].mean() * 100 if len(t_df_curr)>0 else 0,
-            'circ_dens': c_dens,
-            'circ_chew': c_df_curr['chewed'].mean() * 100 if len(c_df_curr)>0 else 0
-        })
-        my_bar.progress((i + 1) / in_runs)
-    
-    my_bar.empty()
-    stats_summary_df = pd.DataFrame(all_runs_stats)
-    
+    # --- INNEN SZÚRD BE AZ ÚJ TÁBLÁZATOT ---
     summary_table = {
-        "Paraméter": ["Sűrűség (db/m²)", "Rágottság (%)"],
-        "Valódi (S) Átlag": [
-            f"{stats_summary_df['valodi_dens'].mean():.4f}", 
-            f"{stats_summary_df['valodi_chew'].mean():.1f}%"
+        "Paraméter": ["Darabszám (count)", "Sűrűség (density)", "Rágottság (chewed_%)"],
+        "Szimuláció (S)": [
+            f"{first_run_stats['S_count']} db", 
+            f"{first_run_stats['S_density']:.5f}", 
+            f"{first_run_stats['S_chewed']:.1f}%"
         ],
-        "Transzekt (T) Átlag": [
-            f"{stats_summary_df['trans_dens'].mean():.4f} (±{stats_summary_df['trans_dens'].std():.4f})", 
-            f"{stats_summary_df['trans_chew'].mean():.1f}% (±{stats_summary_df['trans_chew'].std():.1f}%)"
+        "Transzekt (T)": [
+            f"{first_run_stats['T_count']} db", 
+            f"{first_run_stats['T_density']:.5f}", 
+            f"{first_run_stats['T_chewed']:.1f}%"
         ],
-        "Mintakör (C) Átlag": [
-            f"{stats_summary_df['circ_dens'].mean():.4f} (±{stats_summary_df['circ_dens'].std():.4f})", 
-            f"{stats_summary_df['circ_chew'].mean():.1f}% (±{stats_summary_df['circ_chew'].std():.1f}%)"
+        "Mintakör (C)": [
+            f"{first_run_stats['C_count']} db", 
+            f"{first_run_stats['C_density']:.5f}", 
+            f"{first_run_stats['C_chewed']:.1f}%"
         ]
     }
     
-    st.subheader(f"📊 Becslési eredmények {in_runs} futás átlagában")
+    st.subheader("📊 Az első futás részletes eredményei")
     st.table(pd.DataFrame(summary_table))
-    st.caption("A zárójelben a szórás (SD) látható.")
+    # --- IDÁIG ---
+
+    df = first_df  # Ez a sor már valószínűleg ott van nálad, ez alá jönnek a grafikonok
     
     df = first_df 
 
@@ -289,3 +217,4 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
     ax_circ.set_aspect('equal')
     st.pyplot(fig_circ)
     plt.close(fig_circ)
+
