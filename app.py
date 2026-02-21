@@ -116,39 +116,41 @@ with st.sidebar:
     st.markdown("---")
     st.subheader("🌿 Fajösszetétel (Interaktív)")
 
-    # Session State inicializálása (csak az első futáskor)
-    if 'sp' not in st.session_state:
-        st.session_state.sp = {'KTT': 20, 'Gy': 20, 'MJ': 20, 'MCs': 20}
+    # Alapértékek beállítása, ha még nincsenek
+    if 'KTT' not in st.session_state: st.session_state['KTT'] = 20
+    if 'Gy' not in st.session_state: st.session_state['Gy'] = 20
+    if 'MJ' not in st.session_state: st.session_state['MJ'] = 20
+    if 'MCs' not in st.session_state: st.session_state['MCs'] = 20
 
-    def update_species(changed_key):
-        # Kiszámoljuk a többi faj összegét
-        current_val = st.session_state[changed_key]
-        others = [k for k in st.session_state.sp.keys() if k != changed_key]
-        other_sum = sum(st.session_state.sp[k] for k in others)
+    def sync_sliders(changed_key):
+        """Ez a függvény gondoskodik róla, hogy ne lépjük túl a 100%-ot."""
+        current_total = st.session_state['KTT'] + st.session_state['Gy'] + st.session_state['MJ'] + st.session_state['MCs']
         
-        # Ha az új értékkel túllépnénk a 100%-ot, arányosan csökkentjük a többit
-        if current_val + other_sum > 100:
-            allowed_for_others = 100 - current_val
-            if other_sum > 0:
-                for k in others:
-                    # Arányos csökkentés, hogy ne lépjük túl a 100-at
-                    new_val = (st.session_state.sp[k] / other_sum) * allowed_for_others
-                    st.session_state.sp[k] = round(new_val)
-            else:
-                for k in others: st.session_state.sp[k] = 0
-        
-        # Frissítjük a megváltozott értéket
-        st.session_state.sp[changed_key] = current_val
+        if current_total > 100:
+            # Mennyit kell levonnunk a többiekből?
+            excess = current_total - 100
+            others = [k for k in ['KTT', 'Gy', 'MJ', 'MCs'] if k != changed_key]
+            
+            # Levonjuk a felesleget a többi csúszkából (sorrendben, amíg el nem fogy az excess)
+            for k in others:
+                if st.session_state[k] >= excess:
+                    st.session_state[k] -= excess
+                    excess = 0
+                    break
+                else:
+                    excess -= st.session_state[k]
+                    st.session_state[k] = 0
 
-    # Csúszkák létrehozása a Session State alapján
-    # Itt a max_value mindig 100, de a változás visszahat a többire
-    p_ktt = st.slider("KTT (%)", 0, 100, st.session_state.sp['KTT'], key="KTT", on_change=update_species, args=("KTT",))
-    p_gy = st.slider("Gy (%)", 0, 100, st.session_state.sp['Gy'], key="Gy", on_change=update_species, args=("Gy",))
-    p_mj = st.slider("MJ (%)", 0, 100, st.session_state.sp['MJ'], key="MJ", on_change=update_species, args=("MJ",))
-    p_mcs = st.slider("MCs (%)", 0, 100, st.session_state.sp['MCs'], key="MCs", on_change=update_species, args=("MCs",))
+    # A csúszkák, amik a session_state-et használják
+    p_ktt = st.slider("KTT (%)", 0, 100, key='KTT', on_change=sync_sliders, args=('KTT',))
+    p_gy = st.slider("Gy (%)", 0, 100, key='Gy', on_change=sync_sliders, args=('Gy',))
+    p_mj = st.slider("MJ (%)", 0, 100, key='MJ', on_change=sync_sliders, args=('MJ',))
+    p_mcs = st.slider("MCs (%)", 0, 100, key='MCs', on_change=sync_sliders, args=('MCs',))
 
-    # BaBe kiszámítása (ami marad)
+    # A maradék BaBe
     p_babe = max(0, 100 - (p_ktt + p_gy + p_mj + p_mcs))
+    
+    st.info(f"BaBe: {p_babe}%")
     
     st.info(f"BaBe (maradék): {p_babe}%")
     st.caption(f"Összesen: {p_ktt + p_gy + p_mj + p_mcs + p_babe}%")
@@ -221,6 +223,7 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
         ax3d.legend()
         st.pyplot(fig_3d)
         plt.close(fig_3d)
+
 
 
 
