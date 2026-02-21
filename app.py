@@ -211,4 +211,71 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
     # --- ELSŐ FUTÁS RÉSZLETES TÁBLÁZATA ---
     summary_table = {
         "Paraméter": ["Darabszám (count)", "Sűrűség (density)", "Rágottság (chewed_%)"],
-        "Szimuláció (S)": [f"{first_run_stats['S_count']} db", f"{first_run_
+        "Szimuláció (S)": [f"{first_run_stats['S_count']} db", f"{first_run_stats['S_density']:.5f}", f"{first_run_stats['S_chewed']:.1f}%"],
+        "Transzekt (T)": [f"{first_run_stats['T_count']} db", f"{first_run_stats['T_density']:.5f}", f"{first_run_stats['T_chewed']:.1f}%"],
+        "Mintakör (C)": [f"{first_run_stats['C_count']} db", f"{first_run_stats['C_density']:.5f}", f"{first_run_stats['C_chewed']:.1f}%"]
+    }
+    st.subheader("📊 Az első futás részletes eredményei")
+    st.table(pd.DataFrame(summary_table))
+
+    df = first_df 
+
+    # --- GRAFIKONOK (Csak az első futás alapján) ---
+    st.markdown("---")
+    st.subheader("🌲 A szimulált erdő fafaj-összetétele")
+    st.markdown(f"""
+        <div style="display: flex; height: 35px; width: 100%; border-radius: 8px; overflow: hidden; border: 2px solid #ddd; margin-bottom: 20px;">
+            <div style="width: {p_ktt}%; background-color: {species_colors['KTT']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_ktt if p_ktt > 5 else ''}%</div>
+            <div style="width: {p_gy}%; background-color: {species_colors['Gy']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_gy if p_gy > 5 else ''}%</div>
+            <div style="width: {p_mj}%; background-color: {species_colors['MJ']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_mj if p_mj > 5 else ''}%</div>
+            <div style="width: {p_mcs}%; background-color: {species_colors['MCs']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_mcs if p_mcs > 5 else ''}%</div>
+            <div style="width: {p_babe}%; background-color: {species_colors['BaBe']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_babe if p_babe > 5 else ''}%</div>
+        </div>""", unsafe_allow_html=True)
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("📊 Magasság eloszlás")
+        fig_dist, ax_dist = plt.subplots()
+        sns.histplot(df['height'], kde=True, bins=30, color="forestgreen", ax=ax_dist)
+        st.pyplot(fig_dist)
+        plt.close(fig_dist)
+    
+    with col2:
+        st.subheader("🧊 3D Nézet")
+        fig_3d = plt.figure()
+        ax3d = fig_3d.add_subplot(111, projection='3d')
+        for sp in sim_params['sp_names']:
+            sp_df = df[df['species'] == sp]
+            if not sp_df.empty:
+                ax3d.scatter(sp_df['X'], sp_df['Y'], sp_df['height'], color=species_colors[sp], s=sp_df['height'], alpha=0.6)
+        st.pyplot(fig_3d)
+        plt.close(fig_3d)
+
+    st.subheader("🗺️ Mintavételi térképek")
+    m1, m2 = st.columns(2)
+    with m1:
+        st.write("Transzekt")
+        fig_map, ax_map = plt.subplots()
+        ax_map.scatter(df['X'], df['Y'], c='lightgrey', s=2, alpha=0.3)
+        t_df_plot = df[df['T'] == 1]
+        ax_map.scatter(t_df_plot['X'], t_df_plot['Y'], c='red', s=10)
+        ax_map.plot([0, width], [0, height], 'r--', lw=1)
+        ax_map.set_aspect('equal')
+        st.pyplot(fig_map)
+    with m2:
+        st.write("Mintakörök")
+        fig_circ, ax_circ = plt.subplots()
+        ax_circ.scatter(df['X'], df['Y'], c='lightgrey', s=2, alpha=0.3)
+        c_df_plot = df[df['C'] == 1]
+        ax_circ.scatter(c_df_plot['X'], c_df_plot['Y'], c='blue', s=10)
+        ax_circ.add_patch(patches.Circle(center_big, r_big, color='navy', fill=False))
+        for cs in centers_small: ax_circ.add_patch(patches.Circle(cs, r_small, color='dodgerblue', fill=False))
+        ax_circ.set_aspect('equal')
+        st.pyplot(fig_circ)
+
+    st.subheader("🦌 Rágottság fafajonként")
+    fig_chew, ax_chew = plt.subplots(figsize=(10, 4))
+    spec_chew = df.groupby('species')['chewed'].mean() * 100
+    ax_chew.bar(spec_chew.index, spec_chew.values, color=[species_colors.get(x) for x in spec_chew.index])
+    ax_chew.axhline(in_chewed, color='red', linestyle='--', label='Cél')
+    st.pyplot(fig_chew)
