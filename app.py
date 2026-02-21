@@ -247,6 +247,114 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
         ax3d.legend()
         st.pyplot(fig_3d)
         plt.close(fig_3d)
+      # --- 4. TRANSZEKT FELÜLNÉZETI TÉRKÉP ---
+        st.subheader("🗺️ Transzekt mintavétel felülnézetből")
+        fig_map, ax_map = plt.subplots(figsize=(10, 10))
+        
+        # Az összes fa halványan a háttérben
+        ax_map.scatter(df['X'], df['Y'], c='lightgrey', s=5, alpha=0.3, label='Erdő egyedei')
+        
+        # A transzektbe eső fák kiemelve fajonkénti színnel
+        t_df = df[df['T'] == 1]
+        if not t_df.empty:
+            for sp in sim_params['sp_names']:
+                sp_t = t_df[t_df['species'] == sp]
+                if not sp_t.empty:
+                    ax_map.scatter(sp_t['X'], sp_t['Y'], color=species_colors[sp], s=20, label=f'{sp} (mintában)')
+
+        # Az átló (transzekt középvonala)
+        ax_map.plot([0, width], [0, height], color='red', linestyle='--', linewidth=1, label='Transzekt tengely')
+        
+        # Transzekt határának szemléltetése (elvi sáv)
+        # Mivel a szélesség fánként változik (height), egy átlagos sávot rajzolunk a szemléltetéshez
+        avg_h = df['height'].mean()
+        ax_map.fill_between([0, width], [0 - avg_h, height - avg_h], [0 + avg_h, height + avg_h], 
+                            color='red', alpha=0.1, label='Átlagos mintavételi sáv')
+
+        ax_map.set_xlim(0, width)
+        ax_map.set_ylim(0, height)
+        ax_map.set_aspect('equal')
+        ax_map.legend(loc='upper left', bbox_to_anchor=(1, 1))
+        st.pyplot(fig_map)
+        plt.close(fig_map)
+        
+        st.markdown("---")
+
+        # --- 5. RÁGOTTSÁGI STATISZTIKA (FAJONKÉNT) ---
+        st.subheader("🦌 Rágottság mértéke fafajonként")
+        fig_chew, ax_chew = plt.subplots(figsize=(10, 5))
+        
+        # Kiszámoljuk a fajonkénti rágottsági arányt
+        species_chewed = df.groupby('species')['chewed'].mean() * 100
+        
+        # Biztosítjuk, hogy minden faj szerepeljen a grafikonon, akkor is ha 0%
+        full_species_list = sim_params['sp_names']
+        chew_values = [species_chewed.get(sp, 0) for sp in full_species_list]
+        colors = [species_colors[sp] for sp in full_species_list]
+        
+        bars = ax_chew.bar(full_species_list, chew_values, color=colors, edgecolor='black', alpha=0.8)
+        
+        # Értékek ráírása az oszlopokra
+        for bar in bars:
+            yval = bar.get_height()
+            ax_chew.text(bar.get_x() + bar.get_width()/2, yval + 1, f'{yval:.1f}%', ha='center', va='bottom', fontweight='bold')
+
+        ax_chew.axhline(in_chewed, color='red', linestyle='--', label=f'Beállított cél ({in_chewed}%)')
+        ax_chew.set_ylabel("Rágott egyedek aránya (%)")
+        ax_chew.set_ylim(0, 110)
+        ax_chew.legend()
+        st.pyplot(fig_chew)
+        plt.close(fig_chew)
+
+        st.markdown("---")
+      # --- 5. MINTAKÖRÖS FELÜLNÉZETI TÉRKÉP ---
+        st.subheader("🎯 Mintakörös mintavétel felülnézetből")
+        fig_circ, ax_circ = plt.subplots(figsize=(10, 10))
+        
+        # Az összes fa halványan a háttérben
+        ax_circ.scatter(df['X'], df['Y'], c='lightgray', s=5, alpha=0.3, label='Erdő egyedei')
+        
+        # A mintakörökbe eső fák kiemelve (C == 1)
+        c_df = df[df['C'] == 1]
+        if not c_df.empty:
+            for sp in sim_params['sp_names']:
+                sp_c = c_df[c_df['species'] == sp]
+                if not sp_c.empty:
+                    ax_circ.scatter(sp_c['X'], sp_c['Y'], color=species_colors[sp], s=30, 
+                                    label=f'{sp} (mintában)', edgecolors='white', linewidth=0.5)
+
+        # A geometria berajzolása (Körök)
+        # 1. Nagy mintakör (h > 50 egyedeknek)
+        circle_big_patch = patches.Circle(center_big, r_big, color='navy', fill=False, 
+                                          linestyle='--', linewidth=2, alpha=0.5, label='Nagy mintakör (h>50)')
+        ax_circ.add_patch(circle_big_patch)
+        
+        # 2. Négy kis mintakör (h <= 50 egyedeknek)
+        for i, cs in enumerate(centers_small):
+            lbl = 'Kis mintakörök (h<=50)' if i == 0 else ""
+            circle_small_patch = patches.Circle(cs, r_small, color='dodgerblue', fill=False, 
+                                                linestyle=':', linewidth=2, alpha=0.6, label=lbl)
+            ax_circ.add_patch(circle_small_patch)
+
+        # Gravitációs pontok (Csillagok), ha van sűrűsödési erő
+        if in_grav_str > 0:
+            # A szimulációs függvényben használt grav_centers-t itt újra elérhetjük
+            # (Feltételezve, hogy a függvény visszadja vagy fix helyen vannak)
+            # Itt most jelképesen a gravitációs központok megjelenítése:
+            ax_circ.text(10, 1450, f"Sűrűsödési erő: {in_grav_str}", fontsize=10, bbox=dict(facecolor='white', alpha=0.5))
+
+        ax_circ.set_xlim(0, width)
+        ax_circ.set_ylim(0, height)
+        ax_circ.set_aspect('equal')
+        ax_circ.set_xlabel("X koordináta (m)")
+        ax_circ.set_ylabel("Y koordináta (m)")
+        ax_circ.legend(loc='upper left', bbox_to_anchor=(1, 1), title="Jelmagyarázat")
+        
+        st.pyplot(fig_circ)
+        plt.close(fig_circ)
+        
+        st.markdown("---")
+
 
 
 
