@@ -238,7 +238,7 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
     # --- INNENTŐL FOLYTATÓDHAT A KÓDOD A SZÍNES SÁVDIAGRAMMAL ÉS A 3D ÁBRÁVAL ---
         
         # Egy látványos, színes sávdiagram HTML/CSS segítségével
-        st.markdown(
+            st.markdown(
             f"""
             <div style="display: flex; height: 35px; width: 100%; border-radius: 8px; overflow: hidden; border: 2px solid #ddd; margin-bottom: 20px;">
                 <div style="width: {p_ktt}%; background-color: {species_colors['KTT']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_ktt if p_ktt > 5 else ''}%</div>
@@ -407,6 +407,7 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
         plt.close(fig_circ)
         
         st.markdown("---")
+
 
 
 
