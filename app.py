@@ -114,15 +114,29 @@ with st.sidebar:
     in_chewed = st.slider("Valódi rágottság (%)", 0, 100, 30)
     
     st.markdown("---")
-    st.subheader("🌿 Fajösszetétel")
-    p_ktt = st.slider("KTT (%)", 0, 100, 20)
-    p_gy = st.slider("Gy (%)", 0, 100 - p_ktt, 20)
-    p_mj = st.slider("MJ (%)", 0, 100 - p_ktt - p_gy, 20)
-    p_mcs = st.slider("MCs (%)", 0, 100 - p_ktt - p_gy - p_mj, 20)
+   st.subheader("🌿 Fajösszetétel (Dinamikus korláttal)")
+
+    # 1. KTT csúszka - ez az alap, 0-100 között bármi lehet
+    p_ktt = st.sidebar.slider("KTT (%)", 0, 100, 20, key="s_ktt")
+
+    # 2. Gy csúszka - a max értéke a maradék (100 - KTT)
+    max_gy = 100 - p_ktt
+    p_gy = st.sidebar.slider("Gy (%)", 0, max_gy, min(20, max_gy), key="s_gy")
+
+    # 3. MJ csúszka - a max értéke a maradék (100 - KTT - Gy)
+    max_mj = 100 - p_ktt - p_gy
+    p_mj = st.sidebar.slider("MJ (%)", 0, max_mj, min(20, max_mj), key="s_mj")
+
+    # 4. MCs csúszka - a max értéke a maradék (100 - KTT - Gy - MJ)
+    max_mcs = 100 - p_ktt - p_gy - p_mj
+    p_mcs = st.sidebar.slider("MCs (%)", 0, max_mcs, min(20, max_mcs), key="s_mcs")
+
+    # 5. BaBe - a végső maradék automatikusan
+    p_babe = 100 - p_ktt - p_gy - p_mj - p_mcs
     
-    # JAVÍTÁS: BaBe sosem lesz negatív
-    p_babe = max(0, 100 - (p_ktt + p_gy + p_mj + p_mcs))
-    st.info(f"BaBe: {p_babe}%")
+    # Esztétikus visszajelzés
+    st.info(f"Fajok összege: {p_ktt + p_gy + p_mj + p_mcs + p_babe}%")
+    st.success(f"Automatikus BaBe maradék: {p_babe}%")
 
 if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
     # Normalizálás a biztonság kedvéért
@@ -169,3 +183,4 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
         ax3d.legend()
         st.pyplot(fig_3d)
         plt.close(fig_3d)
+
