@@ -107,7 +107,7 @@ def run_forest_simulation(params):
     return pd.DataFrame(results)
 
       # --- 3. FELHASZNÁLÓI FELÜLET ---
-  with st.sidebar:
+    with st.sidebar:
     st.header("⚙️ Beállítások")
     in_intensity = st.slider("Cél sűrűség (db/m²)", 0.0005, 0.0100, 0.0020, step=0.0005, format="%.4f")
     in_scale = st.slider("Magasság scale (módusz)", 5, 50, 15)
@@ -348,6 +348,7 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
         plt.close(fig_circ)
         
         st.markdown("---")
+
 
 
 
