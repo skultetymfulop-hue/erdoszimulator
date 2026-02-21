@@ -85,8 +85,8 @@ def run_forest_simulation(params):
     final_coords = accepted[final_keep]
     N_final = len(final_coords)
     
-    shape_k = 2.0
-    heights = np.clip(np.random.gamma(shape=shape_k, scale=params['scale']/shape_k, size=N_final), min_height, max_height)
+    shape_k = 5.0
+    heights = np.clip(np.random.gamma(shape=shape_k, scale=params['scale']/(shape_k-1), size=N_final), min_height, max_height)
     fajok = np.random.choice(params['sp_names'], size=N_final, p=params['sp_probs'])
     ragottsag = np.random.uniform(0, 100, size=N_final) < params['chewed_p']
     
@@ -355,6 +355,7 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
         plt.close(fig_circ)
         
         st.markdown("---")
+
 
 
 
