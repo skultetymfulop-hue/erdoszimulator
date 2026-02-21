@@ -4,7 +4,6 @@ import pandas as pd
 import math
 import seaborn as sns
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 from scipy import stats
 from mpl_toolkits.mplot3d import Axes3D
 
@@ -52,18 +51,37 @@ def run_forest_simulation(params):
     expected_n = int(target_intensity * width * height * 1.5)
     N_gen = np.random.poisson(expected_n)
     
-    x_tmp = np.random.uniform(0, width, N_gen)
-    y_tmp = np.random.uniform(0, height, N_gen)
-    coords = np.column_stack((x_tmp, y_tmp))
+    # Csoportosulás (Gravitációs központok)
+    n_grav = 3
+    grav_centers = np.random.uniform(0, width, (n_grav, 2))
     
-    final_keep = np.ones(len(coords), dtype=bool)
+    N_oversample = N_gen * 5
+    x_tmp = np.random.uniform(0, width, N_oversample)
+    y_tmp = np.random.uniform(0, height, N_oversample)
+    
+    dist_all = np.array([np.sqrt((x_tmp - cx)**2 + (y_tmp - cy)**2) for cx, cy in grav_centers])
+    min_dists = dist_all.min(axis=0)
+    
+    # Itt használjuk a sűrűsödési erőt (grav_str)
+    weights = np.exp(-min_dists**2 / (2 * 400**2)) 
+    weights = weights ** (1 / max(params['grav_str'], 0.1))
+    weights /= weights.max()
+    
+    keep_mask = np.random.uniform(0, 1, N_oversample) < weights
+    accepted = np.column_stack((x_tmp, y_tmp))[keep_mask]
+    
+    if len(accepted) > N_gen:
+        accepted = accepted[np.random.choice(len(accepted), N_gen, replace=False)]
+    
+    # Ritkítás (R_core távolság)
+    final_keep = np.ones(len(accepted), dtype=bool)
     R_sq = R_core**2
-    for i in range(len(coords)):
+    for i in range(len(accepted)):
         if not final_keep[i]: continue
-        d_sq = np.sum((coords[i] - coords)**2, axis=1)
+        d_sq = np.sum((accepted[i] - accepted)**2, axis=1)
         final_keep[(d_sq < R_sq) & (d_sq > 0)] = False
     
-    final_coords = coords[final_keep]
+    final_coords = accepted[final_keep]
     N_final = len(final_coords)
     
     shape_k = 2.0
@@ -88,12 +106,11 @@ def run_forest_simulation(params):
     return pd.DataFrame(results)
 
 # --- 3. FELHASZNÁLÓI FELÜLET ---
-st.title("🌲 Profi Erdő Szimulátor")
-
 with st.sidebar:
     st.header("⚙️ Beállítások")
     in_intensity = st.slider("Cél sűrűség (db/m²)", 0.0005, 0.0100, 0.0020, step=0.0005, format="%.4f")
     in_scale = st.slider("Magasság scale (módusz)", 5, 50, 15)
+    in_grav_str = st.slider("Sűrűsödési erő", 0, 10, 3)
     in_chewed = st.slider("Valódi rágottság (%)", 0, 100, 30)
     
     st.markdown("---")
@@ -102,15 +119,19 @@ with st.sidebar:
     p_gy = st.slider("Gy (%)", 0, 100 - p_ktt, 20)
     p_mj = st.slider("MJ (%)", 0, 100 - p_ktt - p_gy, 20)
     p_mcs = st.slider("MCs (%)", 0, 100 - p_ktt - p_gy - p_mj, 20)
-    p_babe = 100 - (p_ktt + p_gy + p_mj + p_mcs)
+    
+    # JAVÍTÁS: BaBe sosem lesz negatív
+    p_babe = max(0, 100 - (p_ktt + p_gy + p_mj + p_mcs))
     st.info(f"BaBe: {p_babe}%")
 
 if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
-    raw_probs = np.array([p_ktt, p_gy, p_mj, p_mcs, p_babe]) / 100.0
+    # Normalizálás a biztonság kedvéért
+    raw_probs = np.array([p_ktt, p_gy, p_mj, p_mcs, p_babe], dtype=float)
     corrected_probs = raw_probs / raw_probs.sum()
 
     sim_params = {
-        'intensity': in_intensity, 'scale': in_scale, 'chewed_p': in_chewed,
+        'intensity': in_intensity, 'scale': in_scale, 'grav_str': in_grav_str,
+        'chewed_p': in_chewed,
         'sp_names': ['KTT', 'Gy', 'MJ', 'MCs', 'BaBe'],
         'sp_probs': corrected_probs 
     }
@@ -123,7 +144,7 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
         c_df = df[df['C'] == 1]
         
         stats_data = {
-            "Paraméter": ["Egyedszám", "Sűrűség", "Scale (H)", "Rágottság"],
+            "Paraméter": ["Egyedszám", "Sűrűség (db/m²)", "Scale (H)", "Rágottság"],
             "Valódi (S)": [len(df), f"{len(df)/(width*height):.4f}", get_weighted_height_mode(df), f"{df['chewed'].mean()*100:.1f}%"],
             "Transzekt (T)": [len(t_df), f"{(t_df['height'].apply(lambda h: 1/h).sum()/width) if len(t_df)>0 else 0:.4f}", get_weighted_height_mode(t_df, True), f"{t_df['chewed'].mean()*100 if len(t_df)>0 else 0:.1f}%"],
             "Mintakör (C)": [len(c_df), "N/A", get_weighted_height_mode(c_df), f"{c_df['chewed'].mean()*100 if len(c_df)>0 else 0:.1f}%"]
@@ -132,7 +153,7 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
         st.table(pd.DataFrame(stats_data))
 
         # --- 3D ÁBRA ---
-        st.subheader("🧊 Az erdő 3D nézete")
+        st.subheader("🧊 Az erdő 3D nézete (Fajok szerint)")
         fig_3d = plt.figure(figsize=(10, 7))
         ax3d = fig_3d.add_subplot(111, projection='3d')
         for sp in sim_params['sp_names']:
@@ -142,14 +163,9 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
                 for _, tree in sp_df.iterrows():
                     ax3d.plot([tree['X'], tree['X']], [tree['Y'], tree['Y']], [0, tree['height']], color='brown', alpha=0.1, linewidth=0.5)
         ax3d.set_zlim(0, max_height)
+        ax3d.set_xlabel("X (m)")
+        ax3d.set_ylabel("Y (m)")
+        ax3d.set_zlabel("Magasság (m)")
         ax3d.legend()
         st.pyplot(fig_3d)
         plt.close(fig_3d)
-
-        # --- TÉRKÉP ---
-        st.subheader("🗺️ Felülnézeti térkép")
-        fig, ax = plt.subplots(figsize=(8, 8))
-        sns.scatterplot(data=df, x="X", y="Y", hue="species", size="height", style="chewed", markers={0: 'o', 1: 'X'}, alpha=0.5, ax=ax, palette=species_colors)
-        ax.plot([0, 1500], [0, 1500], 'r--', alpha=0.3)
-        st.pyplot(fig)
-        plt.close(fig)
