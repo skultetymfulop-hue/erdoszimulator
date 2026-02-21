@@ -6,6 +6,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from scipy import stats
 from mpl_toolkits.mplot3d import Axes3D
+import matplotlib.patches as patches
 
 # --- 1. ALAPBEÁLLÍTÁSOK ---
 st.set_page_config(page_title="Profi Erdő Szimulátor", layout="centered")
@@ -281,7 +282,7 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
         st.markdown("---")
 
         # --- 5. RÁGOTTSÁGI STATISZTIKA (FAJONKÉNT) ---
-        st.subheader("🦌 Rágottság mértéke fafajonként")
+        st.subheader("🦌 Rágottság mértéke fafajonként(így szar majd más lesz)")
         fig_chew, ax_chew = plt.subplots(figsize=(10, 5))
         
         # Kiszámoljuk a fajonkénti rágottsági arányt
@@ -354,6 +355,7 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
         plt.close(fig_circ)
         
         st.markdown("---")
+
 
 
 
