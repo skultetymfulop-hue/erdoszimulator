@@ -155,8 +155,10 @@ with st.sidebar:
     
     st.info(f"BaBe (maradék): {p_babe}%")
     st.caption(f"Összesen: {p_ktt + p_gy + p_mj + p_mcs + p_babe}%")
+# --- 3. FELHASZNÁLÓI FELÜLET GOMB UTÁNI RÉSZE ---
+
 if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
-    # Normalizálás a biztonság kedvéért
+    # Valószínűségek előkészítése
     raw_probs = np.array([p_ktt, p_gy, p_mj, p_mcs, p_babe], dtype=float)
     corrected_probs = raw_probs / raw_probs.sum()
 
@@ -167,50 +169,73 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
         'sp_probs': corrected_probs 
     }
     
-    df = run_forest_simulation(sim_params)
+    # Adatgyűjtő listák az ismételt futásokhoz
+    all_runs_stats = []
+    first_df = None 
+
+    # Haladási sáv, hogy a felhasználó lássa, hol tartunk
+    progress_text = "Szimulációk futtatása folyamatban..."
+    my_bar = st.progress(0, text=progress_text)
     
-    if not df.empty:
-        # --- STATISZTIKA ---
-       # --- JAVÍTOTT STATISZTIKA ---
-        t_df = df[df['T'] == 1]
-        c_df = df[df['C'] == 1]
-
-        # Mintakör sűrűség becslése (db/m2)
-        # Külön választjuk a kicsiket és nagyokat a mintában
-        c_large = c_df[c_df['height'] > 50]
-        c_small = c_df[c_df['height'] <= 50]
+    for i in range(in_runs):
+        current_df = run_forest_simulation(sim_params)
         
-        # Sűrűség = (Nagyok száma / Nagy kör területe) + (Kicsik száma / Kis körök összterülete)
-        if area_big_circle > 0 and area_small_circles > 0:
-            c_density_estimate = (len(c_large) / area_big_circle) + (len(c_small) / area_small_circles)
-        else:
-            c_density_estimate = 0
+        # Az első futást külön elmentjük a vizualizációkhoz
+        if i == 0:
+            first_df = current_df 
+        
+        # Statisztikák kigyűjtése ebből a körből
+        t_df_curr = current_df[current_df['T'] == 1]
+        c_df_curr = current_df[current_df['C'] == 1]
+        
+        # Mintakör sűrűség becslése
+        c_large = c_df_curr[c_df_curr['height'] > 50]
+        c_small = c_df_curr[c_df_curr['height'] <= 50]
+        c_dens = (len(c_large) / area_big_circle) + (len(c_small) / area_small_circles)
+        
+        # Adatok tárolása
+        all_runs_stats.append({
+            'valodi_dens': len(current_df)/(width*height),
+            'valodi_chew': current_df['chewed'].mean() * 100,
+            'trans_dens': (t_df_curr['height'].apply(lambda h: 1/h).sum()/width) if len(t_df_curr)>0 else 0,
+            'trans_chew': t_df_curr['chewed'].mean() * 100 if len(t_df_curr)>0 else 0,
+            'circ_dens': c_dens,
+            'circ_chew': c_df_curr['chewed'].mean() * 100 if len(c_df_curr)>0 else 0
+        })
+        # Haladási sáv frissítése
+        my_bar.progress((i + 1) / in_runs)
+    
+    my_bar.empty() # Töröljük a sávot, ha végzett
 
-        stats_data = {
-            "Paraméter": ["Egyedszám", "Sűrűség (db/m²)", "Scale (H)", "Rágottság"],
-            "Valódi (S)": [
-                len(df), 
-                f"{len(df)/(width*height):.4f}", 
-                get_weighted_height_mode(df), 
-                f"{df['chewed'].mean()*100:.1f}%"
-            ],
-            "Transzekt (T)": [
-                len(t_df), 
-                f"{(t_df['height'].apply(lambda h: 1/h).sum()/width) if len(t_df)>0 else 0:.4f}", 
-                get_weighted_height_mode(t_df, True), 
-                f"{t_df['chewed'].mean()*100 if len(t_df)>0 else 0:.1f}%"
-            ],
-            "Mintakör (C)": [
-                len(c_df), 
-                f"{c_density_estimate:.4f}", # <--- Itt már nem N/A van!
-                get_weighted_height_mode(c_df), 
-                f"{c_df['chewed'].mean()*100 if len(c_df)>0 else 0:.1f}%"
-            ]
-        }
-        st.subheader("📊 Becslési eredmények")
-        st.table(pd.DataFrame(stats_data))
-        st.markdown("---")
-        st.subheader("🌲 A szimulált erdő fafaj-összetétele")
+    # Összesített statisztika kiszámítása
+    stats_summary_df = pd.DataFrame(all_runs_stats)
+    
+    # --- ÖSSZESÍTETT TÁBLÁZAT MEGJELENÍTÉSE ---
+    summary_table = {
+        "Paraméter": ["Sűrűség (db/m²)", "Rágottság (%)"],
+        "Valódi (S) Átlag": [
+            f"{stats_summary_df['valodi_dens'].mean():.4f}", 
+            f"{stats_summary_df['valodi_chew'].mean():.1f}%"
+        ],
+        "Transzekt (T) Átlag": [
+            f"{stats_summary_df['trans_dens'].mean():.4f} (±{stats_summary_df['trans_dens'].std():.4f})", 
+            f"{stats_summary_df['trans_chew'].mean():.1f}% (±{stats_summary_df['trans_chew'].std():.1f}%)"
+        ],
+        "Mintakör (C) Átlag": [
+            f"{stats_summary_df['circ_dens'].mean():.4f} (±{stats_summary_df['circ_dens'].std():.4f})", 
+            f"{stats_summary_df['circ_chew'].mean():.1f}% (±{stats_summary_df['circ_chew'].std():.1f}%)"
+        ]
+    }
+    
+    st.subheader(f"📊 Becslési eredmények {in_runs} futás átlagában")
+    st.table(pd.DataFrame(summary_table))
+    st.caption("A zárójelben a szórás (SD) látható. Minél kisebb, annál stabilabb a módszer.")
+    
+    # --- VIZUALIZÁCIÓK ÁTADÁSA ---
+    # Itt mondjuk meg a programnak, hogy a többi grafikon az ELSŐ futást használja
+    df = first_df 
+
+    # --- INNENTŐL FOLYTATÓDHAT A KÓDOD A SZÍNES SÁVDIAGRAMMAL ÉS A 3D ÁBRÁVAL ---
         
         # Egy látványos, színes sávdiagram HTML/CSS segítségével
         st.markdown(
@@ -382,6 +407,7 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
         plt.close(fig_circ)
         
         st.markdown("---")
+
 
 
 
