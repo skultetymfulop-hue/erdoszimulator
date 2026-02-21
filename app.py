@@ -33,19 +33,6 @@ def point_line_distance(x, y, x1, y1, x2, y2):
     den = math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
     return num / den
 
-def get_weighted_height_mode(df_subset, is_transzekt=False):
-    if len(df_subset) == 0: return 0
-    rounded_heights = df_subset['height'].round()
-    if is_transzekt:
-        weights = 1 / df_subset['height']
-        counts = {}
-        for h, w in zip(rounded_heights, weights):
-            counts[h] = counts.get(h, 0) + w
-        return int(max(counts, key=counts.get))
-    else:
-        mode_result = stats.mode(rounded_heights, keepdims=True)
-        return int(mode_result.mode[0])
-
 # --- 2. SZIMULÁCIÓS FÜGGVÉNY ---
 def run_forest_simulation(params):
     target_intensity = params['intensity']
@@ -106,14 +93,15 @@ def run_forest_simulation(params):
 # --- 3. FELHASZNÁLÓI FELÜLET ---
 with st.sidebar:
     st.header("⚙️ Beállítások")
-    in_intensity = st.slider("Cél sűrűség (db/m²)", 0.0005, 0.0100, 0.0020, step=0.0005, format="%.4f")
+    # Módosított skála: 0.00005 - 0.005
+    in_intensity = st.slider("Cél sűrűség (db/m²)", 0.00005, 0.005, 0.0020, step=0.00005, format="%.5f")
     in_scale = st.slider("Magasság scale (módusz)", 5, 50, 15)
     in_grav_str = st.slider("Sűrűsödési erő", 0, 10, 3)
     in_chewed = st.slider("Valódi rágottság (%)", 0, 100, 30)
     in_runs = st.slider("Szimulációs futások száma", 2, 100, 5)
     
     st.markdown("---")
-    st.subheader("🌿 Fajösszetétel (Interaktív)")
+    st.subheader("🌿 Fajösszetétel (%)")
 
     if 'KTT' not in st.session_state: st.session_state['KTT'] = 20
     if 'Gy' not in st.session_state: st.session_state['Gy'] = 20
@@ -134,10 +122,10 @@ with st.sidebar:
                     excess -= st.session_state[k]
                     st.session_state[k] = 0
 
-    p_ktt = st.slider("KTT (%)", 0, 100, key='KTT', on_change=sync_sliders, args=('KTT',))
-    p_gy = st.slider("Gy (%)", 0, 100, key='Gy', on_change=sync_sliders, args=('Gy',))
-    p_mj = st.slider("MJ (%)", 0, 100, key='MJ', on_change=sync_sliders, args=('MJ',))
-    p_mcs = st.slider("MCs (%)", 0, 100, key='MCs', on_change=sync_sliders, args=('MCs',))
+    p_ktt = st.slider("KTT", 0, 100, key='KTT', on_change=sync_sliders, args=('KTT',))
+    p_gy = st.slider("Gy", 0, 100, key='Gy', on_change=sync_sliders, args=('Gy',))
+    p_mj = st.slider("MJ", 0, 100, key='MJ', on_change=sync_sliders, args=('MJ',))
+    p_mcs = st.slider("MCs", 0, 100, key='MCs', on_change=sync_sliders, args=('MCs',))
     p_babe = max(0, 100 - (p_ktt + p_gy + p_mj + p_mcs))
     st.info(f"BaBe (maradék): {p_babe}%")
 
@@ -156,8 +144,7 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
     all_runs_stats = []
     first_df = None 
 
-    progress_text = "Szimulációk futtatása folyamatban..."
-    my_bar = st.progress(0, text=progress_text)
+    my_bar = st.progress(0, text="Szimulációk futtatása...")
     
     for i in range(in_runs):
         current_df = run_forest_simulation(sim_params)
@@ -184,108 +171,88 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
     my_bar.empty()
     stats_summary_df = pd.DataFrame(all_runs_stats)
     
+    # 1. TÁBLÁZAT HELYREÁLLÍTÁSA
     summary_table = {
         "Paraméter": ["Sűrűség (db/m²)", "Rágottság (%)"],
         "Valódi (S) Átlag": [
-            f"{stats_summary_df['valodi_dens'].mean():.4f}", 
+            f"{stats_summary_df['valodi_dens'].mean():.5f}", 
             f"{stats_summary_df['valodi_chew'].mean():.1f}%"
         ],
         "Transzekt (T) Átlag": [
-            f"{stats_summary_df['trans_dens'].mean():.4f} (±{stats_summary_df['trans_dens'].std():.4f})", 
+            f"{stats_summary_df['trans_dens'].mean():.5f} (±{stats_summary_df['trans_dens'].std():.5f})", 
             f"{stats_summary_df['trans_chew'].mean():.1f}% (±{stats_summary_df['trans_chew'].std():.1f}%)"
         ],
         "Mintakör (C) Átlag": [
-            f"{stats_summary_df['circ_dens'].mean():.4f} (±{stats_summary_df['circ_dens'].std():.4f})", 
+            f"{stats_summary_df['circ_dens'].mean():.5f} (±{stats_summary_df['circ_dens'].std():.5f})", 
             f"{stats_summary_df['circ_chew'].mean():.1f}% (±{stats_summary_df['circ_chew'].std():.1f}%)"
         ]
     }
     
     st.subheader(f"📊 Becslési eredmények {in_runs} futás átlagában")
     st.table(pd.DataFrame(summary_table))
-    st.caption("A zárójelben a szórás (SD) látható.")
     
     df = first_df 
 
+    # 2. VIZUALIZÁCIÓK
     st.markdown("---")
-    st.subheader("🌲 A szimulált erdő fafaj-összetétele (Első futás)")
-    
-    st.markdown(
-        f"""
+    st.subheader("🌲 Fafaj-összetétel (Első futás)")
+    st.markdown(f"""
         <div style="display: flex; height: 35px; width: 100%; border-radius: 8px; overflow: hidden; border: 2px solid #ddd; margin-bottom: 20px;">
-            <div style="width: {p_ktt}%; background-color: {species_colors['KTT']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_ktt if p_ktt > 5 else ''}%</div>
-            <div style="width: {p_gy}%; background-color: {species_colors['Gy']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_gy if p_gy > 5 else ''}%</div>
-            <div style="width: {p_mj}%; background-color: {species_colors['MJ']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_mj if p_mj > 5 else ''}%</div>
-            <div style="width: {p_mcs}%; background-color: {species_colors['MCs']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_mcs if p_mcs > 5 else ''}%</div>
-            <div style="width: {p_babe}%; background-color: {species_colors['BaBe']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_babe if p_babe > 5 else ''}%</div>
+            <div style="width: {p_ktt}%; background-color: {species_colors['KTT']};"></div>
+            <div style="width: {p_gy}%; background-color: {species_colors['Gy']};"></div>
+            <div style="width: {p_mj}%; background-color: {species_colors['MJ']};"></div>
+            <div style="width: {p_mcs}%; background-color: {species_colors['MCs']};"></div>
+            <div style="width: {p_babe}%; background-color: {species_colors['BaBe']};"></div>
         </div>
-        """, unsafe_allow_html=True
-    )
+        """, unsafe_allow_html=True)
 
-    st.subheader("📊 Magasság eloszlás")
-    fig_dist, ax_dist = plt.subplots(figsize=(10, 4))
-    sns.histplot(df['height'], kde=True, bins=30, color="forestgreen", ax=ax_dist, stat="density")
+    # Magasság eloszlás
+    fig_dist, ax_dist = plt.subplots(figsize=(10, 3))
+    sns.histplot(df['height'], kde=True, color="forestgreen", ax=ax_dist)
     st.pyplot(fig_dist)
     plt.close(fig_dist)
-    
-    st.subheader("🧊 3D Nézet")
-    fig_3d = plt.figure(figsize=(10, 7))
-    ax3d = fig_3d.add_subplot(111, projection='3d')
-    for sp in sim_params['sp_names']:
-        sp_df = df[df['species'] == sp]
-        if not sp_df.empty:
-            ax3d.scatter(sp_df['X'], sp_df['Y'], sp_df['height'], color=species_colors[sp], s=sp_df['height']*2, alpha=0.7, label=sp)
-    st.pyplot(fig_3d)
-    plt.close(fig_3d)
 
-    st.subheader("🗺️ Transzekt mintavétel felülnézetből")
+    # Transzekt térkép - SÖTÉTEBB HÁTTÉRREL
+    st.subheader("🗺️ Transzekt mintavétel (Felülnézet)")
     fig_map, ax_map = plt.subplots(figsize=(10, 10))
-    ax_map.scatter(df['X'], df['Y'], c='lightgrey', s=5, alpha=0.3, label='Erdő egyedei')
+    ax_map.scatter(df['X'], df['Y'], c='dimgray', s=8, alpha=0.5, label='Erdő egyedei')
     t_df = df[df['T'] == 1]
-    if not t_df.empty:
-        for sp in sim_params['sp_names']:
-            sp_t = t_df[t_df['species'] == sp]
-            if not sp_t.empty:
-                ax_map.scatter(sp_t['X'], sp_t['Y'], color=species_colors[sp], s=20, label=f'{sp} (mintában)')
-    ax_map.plot([0, width], [0, height], color='red', linestyle='--', linewidth=1, label='Transzekt tengely')
-    ax_map.set_xlim(0, width)
-    ax_map.set_ylim(0, height)
+    for sp in sim_params['sp_names']:
+        sp_t = t_df[t_df['species'] == sp]
+        if not sp_t.empty:
+            ax_map.scatter(sp_t['X'], sp_t['Y'], color=species_colors[sp], s=30, label=sp)
+    ax_map.plot([0, width], [0, height], color='red', linestyle='--')
     ax_map.set_aspect('equal')
     st.pyplot(fig_map)
     plt.close(fig_map)
-    
-    st.markdown("---")
 
+    # 3. RÁGOTTSÁG DIAGRAM HELYREÁLLÍTÁSA
     st.subheader("🦌 Rágottság mértéke fafajonként")
     fig_chew, ax_chew = plt.subplots(figsize=(10, 5))
     species_chewed = df.groupby('species')['chewed'].mean() * 100
-    full_species_list = sim_params['sp_names']
-    chew_values = [species_chewed.get(sp, 0) for sp in full_species_list]
-    colors = [species_colors[sp] for sp in full_species_list]
-    bars = ax_chew.bar(full_species_list, chew_values, color=colors, edgecolor='black', alpha=0.8)
-    ax_chew.axhline(in_chewed, color='red', linestyle='--', label=f'Cél ({in_chewed}%)')
+    chew_values = [species_chewed.get(sp, 0) for sp in sim_params['sp_names']]
+    ax_chew.bar(sim_params['sp_names'], chew_values, color=[species_colors[sp] for sp in sim_params['sp_names']], edgecolor='black')
+    ax_chew.axhline(in_chewed, color='red', linestyle='--', label='Cél érték')
+    ax_chew.set_ylabel("Rágottság (%)")
     ax_chew.set_ylim(0, 110)
+    ax_chew.legend()
     st.pyplot(fig_chew)
     plt.close(fig_chew)
 
-    st.markdown("---")
-    st.subheader("🎯 Mintakörös mintavétel felülnézetből")
+    # Mintakör térkép - SÖTÉTEBB HÁTTÉRREL
+    st.subheader("🎯 Mintakörös mintavétel (Felülnézet)")
     fig_circ, ax_circ = plt.subplots(figsize=(10, 10))
-    ax_circ.scatter(df['X'], df['Y'], c='lightgray', s=5, alpha=0.3)
+    ax_circ.scatter(df['X'], df['Y'], c='dimgray', s=8, alpha=0.5)
     c_df = df[df['C'] == 1]
-    if not c_df.empty:
-        for sp in sim_params['sp_names']:
-            sp_c = c_df[c_df['species'] == sp]
-            if not sp_c.empty:
-                ax_circ.scatter(sp_c['X'], sp_c['Y'], color=species_colors[sp], s=30)
+    for sp in sim_params['sp_names']:
+        sp_c = c_df[c_df['species'] == sp]
+        if not sp_c.empty:
+            ax_circ.scatter(sp_c['X'], sp_c['Y'], color=species_colors[sp], s=40)
     
-    circle_big_patch = patches.Circle(center_big, r_big, color='navy', fill=False, linestyle='--')
-    ax_circ.add_patch(circle_big_patch)
+    ax_circ.add_patch(patches.Circle(center_big, r_big, color='navy', fill=False, linestyle='--', linewidth=2))
     for cs in centers_small:
-        circle_small_patch = patches.Circle(cs, r_small, color='dodgerblue', fill=False, linestyle=':')
-        ax_circ.add_patch(circle_small_patch)
-
-    ax_circ.set_xlim(0, width)
-    ax_circ.set_ylim(0, height)
+        ax_circ.add_patch(patches.Circle(cs, r_small, color='dodgerblue', fill=False, linestyle=':', linewidth=2))
+    
     ax_circ.set_aspect('equal')
     st.pyplot(fig_circ)
     plt.close(fig_circ)
