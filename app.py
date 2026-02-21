@@ -205,6 +205,30 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
             unsafe_allow_html=True
         )
         st.markdown("---")
+      
+      # --- MAGASSÁG ELOSZLÁSI GÖRBE ---
+        st.subheader("📊 Magasság eloszlás az erdőben")
+        
+        fig_dist, ax_dist = plt.subplots(figsize=(10, 4))
+        
+        # Hisztogram és simított görbe (KDE)
+        sns.histplot(df['height'], kde=True, bins=30, color="forestgreen", ax=ax_dist, stat="density")
+        
+        # Átlag és Módusz jelölése
+        mean_h = df['height'].mean()
+        mode_h = get_weighted_height_mode(df)
+        
+        ax_dist.axvline(mean_h, color='red', linestyle='--', label=f'Átlag: {mean_h:.1f} m')
+        ax_dist.axvline(mode_h, color='blue', linestyle=':', label=f'Módusz: {mode_h:.1f} m')
+        
+        ax_dist.set_xlabel("Magasság (m)")
+        ax_dist.set_ylabel("Gyakoriság")
+        ax_dist.legend()
+        
+        st.pyplot(fig_dist)
+        plt.close(fig_dist)
+        
+        st.markdown("---")
 
         # --- 3D ÁBRA ---
         st.subheader("🧊 Az erdő 3D nézete (Fajok szerint)")
@@ -223,6 +247,7 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
         ax3d.legend()
         st.pyplot(fig_3d)
         plt.close(fig_3d)
+
 
 
 
