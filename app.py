@@ -10,8 +10,8 @@ from scipy import stats
 # --- 1. ALAPBEÁLLÍTÁSOK ---
 st.set_page_config(page_title="Profi Erdő Szimulátor", layout="centered")
 
-width, height = 1500, 1500 # m (vagy cm, a lényeg az arány)
-area_ha = (width * height) / 10000 # Terület hektárban a sűrűséghez
+width, height = 1500, 1500 
+area_ha = (width * height) / 10000 
 max_height = 200
 min_height = 3
 R_core = 5  
@@ -21,10 +21,8 @@ r_small = 126
 centers_small = [(width/4, height/4), (3*width/4, height/4), 
                  (width/4, 3*height/4), (3*width/4, 3*height/4)]
 
-# Mintaterületek mérete (m2)
 area_big_circle = math.pi * (r_big**2)
 area_small_circles = 4 * (math.pi * (r_small**2))
-# A transzekt területe dinamikus (szélessége = fa magassága), így azt a ciklusban számoljuk
 
 def point_line_distance(x, y, x1, y1, x2, y2):
     num = abs((x2 - x1) * (y1 - y) - (x1 - x) * (y2 - y1))
@@ -35,7 +33,6 @@ def get_weighted_height_mode(df_subset, is_transzekt=False):
     if len(df_subset) == 0: return 0
     rounded_heights = df_subset['height'].round()
     if is_transzekt:
-        # Horvitz-Thompson korrekció: 1/h súlyozás
         weights = 1 / df_subset['height']
         counts = {}
         for h, w in zip(rounded_heights, weights):
@@ -117,7 +114,6 @@ def run_forest_simulation(params):
             "X": x, "Y": y, "height": h, "species": fajok[i], 
             "chewed": int(ragottsag[i]), "T": in_t, "C": in_c
         })
-        
     return pd.DataFrame(results)
 
 # --- 4. FELHASZNÁLÓI FELÜLET ---
@@ -154,43 +150,19 @@ if st.button("SZIMULÁCIÓ ÉS BECSLÉS FUTTATÁSA", use_container_width=True):
     
     if not df.empty:
         # --- STATISZTIKAI SZÁMÍTÁSOK ---
-        # 1. Rágottság becslése
-        s_chewed = df['chewed'].mean() * 100
         t_df = df[df['T'] == 1]
-        t_chewed = t_df['chewed'].mean() * 100 if len(t_df) > 0 else 0
         c_df = df[df['C'] == 1]
-        c_chewed = c_df['chewed'].mean() * 100 if len(c_df) > 0 else 0
 
-        # 2. Scale (Magasság módusz) becslése
-        s_scale = get_weighted_height_mode(df)
-        t_scale = get_weighted_height_mode(t_df, is_transzekt=True)
-        c_scale = get_weighted_height_mode(c_df)
+        # 1. Darabszámok (Counts)
+        s_count = len(df)
+        t_count = len(t_df)
+        c_count = len(c_df)
 
-        # 3. Sűrűség becslése (db/m2)
-        s_dens = len(df) / (width * height)
-        # Transzekt sűrűség: sum(1/h) / L
-        t_dens = (t_df['height'].apply(lambda h: 1/h).sum() / width) if len(t_df) > 0 else 0
-        # Kör sűrűség: (N_nagy + N_kicsik) / (Area_nagy + Area_kicsik)
-        # (Ez egy egyszerűsített becslés a kevert körökre)
-        n_big = len(df[(df['C'] == 1) & (df['height'] > 50)])
-        n_small = len(df[(df['C'] == 1) & (df['height'] <= 50)])
-        c_dens = (n_big / area_big_circle) + (n_small / area_small_circles) if (n_big+n_small) > 0 else 0
+        # 2. Rágottság becslése
+        s_chewed = df['chewed'].mean() * 100
+        t_chewed = t_df['chewed'].mean() * 100 if t_count > 0 else 0
+        c_chewed = c_df['chewed'].mean() * 100 if c_count > 0 else 0
 
-        # Összefoglaló táblázat
-        stats_data = {
-            "Paraméter": ["Sűrűség (db/m²)", "Scale (Magasság módusz)", "Rágottság (%)"],
-            "Valódi (S)": [f"{s_dens:.4f}", s_scale, f"{s_chewed:.1f}%"],
-            "Transzekt (T)": [f"{t_dens:.4f}", t_scale, f"{t_chewed:.1f}%"],
-            "Mintakör (C)": [f"{c_dens:.4f}", c_scale, f"{c_chewed:.1f}%"]
-        }
-        st.table(pd.DataFrame(stats_data))
-
-        # Megjelenítés
-        fig, ax = plt.subplots(figsize=(10, 10))
-        sns.scatterplot(data=df, x="X", y="Y", hue="species", size="height", 
-                        style="chewed", markers={0: 'o', 1: 'X'}, alpha=0.6, ax=ax)
-        ax.plot([0, 1500], [0, 1500], 'r--', alpha=0.3, label="Transzekt")
-        ax.add_patch(patches.Circle(center_big, r_big, color='blue', fill=False, linestyle='--'))
-        for cs in centers_small:
-            ax.add_patch(patches.Circle(cs, r_small, color='green', fill=False))
-        st.pyplot(fig)
+        # 3. Scale (Magasság módusz)
+        s_
+      
