@@ -24,13 +24,8 @@ centers_small = [(width/4, height/4), (3*width/4, height/4),
 area_big_circle = math.pi * (r_big**2)
 area_small_circles = 4 * (math.pi * (r_small**2))
 
-# Fix színek a fafajokhoz a 3D ábrához
 species_colors = {
-    'KTT': '#1f77b4',  # Kék
-    'Gy': '#2ca02c',   # Zöld
-    'MJ': '#ff7f0e',   # Narancs
-    'MCs': '#d62728',  # Piros
-    'BaBe': '#9467bd'  # Lila
+    'KTT': '#1f77b4', 'Gy': '#2ca02c', 'MJ': '#ff7f0e', 'MCs': '#d62728', 'BaBe': '#9467bd'
 }
 
 def point_line_distance(x, y, x1, y1, x2, y2):
@@ -53,16 +48,14 @@ def get_weighted_height_mode(df_subset, is_transzekt=False):
 
 # --- 2. SZIMULÁCIÓS FÜGGVÉNY ---
 def run_forest_simulation(params):
-    # (A korábbi logikát megtartjuk a pontgeneráláshoz)
     target_intensity = params['intensity']
-    expected_n = int(target_intensity * width * height * 1.5) # Korrekciós szorzó
+    expected_n = int(target_intensity * width * height * 1.5)
     N_gen = np.random.poisson(expected_n)
     
     x_tmp = np.random.uniform(0, width, N_gen)
     y_tmp = np.random.uniform(0, height, N_gen)
     coords = np.column_stack((x_tmp, y_tmp))
     
-    # Matérn II szűrés (távolság tartása)
     final_keep = np.ones(len(coords), dtype=bool)
     R_sq = R_core**2
     for i in range(len(coords)):
@@ -73,7 +66,6 @@ def run_forest_simulation(params):
     final_coords = coords[final_keep]
     N_final = len(final_coords)
     
-    # Magasság és fajok
     shape_k = 2.0
     heights = np.clip(np.random.gamma(shape=shape_k, scale=params['scale']/shape_k, size=N_final), min_height, max_height)
     fajok = np.random.choice(params['sp_names'], size=N_final, p=params['sp_probs'])
@@ -95,8 +87,8 @@ def run_forest_simulation(params):
         })
     return pd.DataFrame(results)
 
-# --- 4. FELHASZNÁLÓI FELÜLET ---
-st.title("🌲 Profi Erdő Szimulátor 3D")
+# --- 3. FELHASZNÁLÓI FELÜLET ---
+st.title("🌲 Profi Erdő Szimulátor")
 
 with st.sidebar:
     st.header("⚙️ Beállítások")
@@ -105,24 +97,28 @@ with st.sidebar:
     in_chewed = st.slider("Valódi rágottság (%)", 0, 100, 30)
     
     st.markdown("---")
+    st.subheader("🌿 Fajösszetétel")
     p_ktt = st.slider("KTT (%)", 0, 100, 20)
-    p_gy = st.slider("Gy (%)", 0, 100-p_ktt, 20)
-    p_mj = st.slider("MJ (%)", 0, 100-p_ktt-p_gy, 20)
-    p_mcs = st.slider("MCs (%)", 0, 100-p_ktt-p_gy-p_mj, 20)
-    p_babe = 100 - p_ktt - p_gy - p_mj - p_mcs
+    p_gy = st.slider("Gy (%)", 0, 100 - p_ktt, 20)
+    p_mj = st.slider("MJ (%)", 0, 100 - p_ktt - p_gy, 20)
+    p_mcs = st.slider("MCs (%)", 0, 100 - p_ktt - p_gy - p_mj, 20)
+    p_babe = 100 - (p_ktt + p_gy + p_mj + p_mcs)
     st.info(f"BaBe: {p_babe}%")
 
 if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
+    raw_probs = np.array([p_ktt, p_gy, p_mj, p_mcs, p_babe]) / 100.0
+    corrected_probs = raw_probs / raw_probs.sum()
+
     sim_params = {
         'intensity': in_intensity, 'scale': in_scale, 'chewed_p': in_chewed,
         'sp_names': ['KTT', 'Gy', 'MJ', 'MCs', 'BaBe'],
-        'sp_probs': [p_ktt/100, p_gy/100, p_mj/100, p_mcs/100, p_babe/100]
+        'sp_probs': corrected_probs 
     }
     
     df = run_forest_simulation(sim_params)
     
     if not df.empty:
-        # --- 1. TÁBLÁZAT ---
+        # --- STATISZTIKA ---
         t_df = df[df['T'] == 1]
         c_df = df[df['C'] == 1]
         
@@ -132,41 +128,28 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
             "Transzekt (T)": [len(t_df), f"{(t_df['height'].apply(lambda h: 1/h).sum()/width) if len(t_df)>0 else 0:.4f}", get_weighted_height_mode(t_df, True), f"{t_df['chewed'].mean()*100 if len(t_df)>0 else 0:.1f}%"],
             "Mintakör (C)": [len(c_df), "N/A", get_weighted_height_mode(c_df), f"{c_df['chewed'].mean()*100 if len(c_df)>0 else 0:.1f}%"]
         }
+        st.subheader("📊 Becslési eredmények")
         st.table(pd.DataFrame(stats_data))
 
-        # --- 2. 3D ERDŐKÉP ---
-        st.subheader("🧊 Az erdő 3D nézete (Fajok szerint színezve)")
-        fig_3d = plt.figure(figsize=(12, 8))
+        # --- 3D ÁBRA ---
+        st.subheader("🧊 Az erdő 3D nézete")
+        fig_3d = plt.figure(figsize=(10, 7))
         ax3d = fig_3d.add_subplot(111, projection='3d')
-        
         for sp in sim_params['sp_names']:
             sp_df = df[df['species'] == sp]
             if not sp_df.empty:
-                # Lombkorona (scatter)
-                ax3d.scatter(sp_df['X'], sp_df['Y'], sp_df['height'], 
-                             color=species_colors[sp], s=sp_df['height']*3, 
-                             alpha=0.7, label=sp, edgecolors='black', linewidth=0.5)
-                
-                # Fatörzsek (vonalak)
+                ax3d.scatter(sp_df['X'], sp_df['Y'], sp_df['height'], color=species_colors[sp], s=sp_df['height']*2, alpha=0.7, label=sp)
                 for _, tree in sp_df.iterrows():
-                    ax3d.plot([tree['X'], tree['X']], [tree['Y'], tree['Y']], [0, tree['height']], 
-                              color='brown', alpha=0.2, linewidth=1)
-
-        ax3d.set_zlim(0, max_height + 20)
-        ax3d.set_xlabel('X (m)')
-        ax3d.set_ylabel('Y (m)')
-        ax3d.set_zlabel('Magasság (m)')
-        ax3d.legend(title="Fafajok")
+                    ax3d.plot([tree['X'], tree['X']], [tree['Y'], tree['Y']], [0, tree['height']], color='brown', alpha=0.1, linewidth=0.5)
+        ax3d.set_zlim(0, max_height)
+        ax3d.legend()
         st.pyplot(fig_3d)
+        plt.close(fig_3d)
 
-        # --- 3. TÉRKÉP ---
+        # --- TÉRKÉP ---
         st.subheader("🗺️ Felülnézeti térkép")
-        fig, ax = plt.subplots(figsize=(10, 10))
-        sns.scatterplot(data=df, x="X", y="Y", hue="species", size="height", 
-                        style="chewed", markers={0: 'o', 1: 'X'}, alpha=0.6, ax=ax,
-                        palette=species_colors, hue_order=sim_params['sp_names'])
-        ax.plot([0, 1500], [0, 1500], 'r--', alpha=0.3, label="Transzekt")
-        ax.add_patch(patches.Circle(center_big, r_big, color='blue', fill=False, linestyle='--'))
-        for cs in centers_small:
-            ax.add_patch(patches.Circle(cs, r_small, color='green', fill=False))
+        fig, ax = plt.subplots(figsize=(8, 8))
+        sns.scatterplot(data=df, x="X", y="Y", hue="species", size="height", style="chewed", markers={0: 'o', 1: 'X'}, alpha=0.5, ax=ax, palette=species_colors)
+        ax.plot([0, 1500], [0, 1500], 'r--', alpha=0.3)
         st.pyplot(fig)
+        plt.close(fig)
