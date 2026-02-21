@@ -106,33 +106,30 @@ def run_forest_simulation(params):
         })
     return pd.DataFrame(results)
 
-# --- 3. FELHASZNÁLÓI FELÜLET ---
-with st.sidebar:
+      # --- 3. FELHASZNÁLÓI FELÜLET ---
+  with st.sidebar:
     st.header("⚙️ Beállítások")
     in_intensity = st.slider("Cél sűrűség (db/m²)", 0.0005, 0.0100, 0.0020, step=0.0005, format="%.4f")
     in_scale = st.slider("Magasság scale (módusz)", 5, 50, 15)
     in_grav_str = st.slider("Sűrűsödési erő", 0, 10, 3)
     in_chewed = st.slider("Valódi rágottság (%)", 0, 100, 30)
     
+    # ÚJ: Itt állítjuk be a futások számát
+    in_runs = st.slider("Szimulációs futások száma", 2, 100, 5)
+    
     st.markdown("---")
     st.subheader("🌿 Fajösszetétel (Interaktív)")
 
-    # Alapértékek beállítása, ha még nincsenek
     if 'KTT' not in st.session_state: st.session_state['KTT'] = 20
     if 'Gy' not in st.session_state: st.session_state['Gy'] = 20
     if 'MJ' not in st.session_state: st.session_state['MJ'] = 20
     if 'MCs' not in st.session_state: st.session_state['MCs'] = 20
 
     def sync_sliders(changed_key):
-        """Ez a függvény gondoskodik róla, hogy ne lépjük túl a 100%-ot."""
         current_total = st.session_state['KTT'] + st.session_state['Gy'] + st.session_state['MJ'] + st.session_state['MCs']
-        
         if current_total > 100:
-            # Mennyit kell levonnunk a többiekből?
             excess = current_total - 100
             others = [k for k in ['KTT', 'Gy', 'MJ', 'MCs'] if k != changed_key]
-            
-            # Levonjuk a felesleget a többi csúszkából (sorrendben, amíg el nem fogy az excess)
             for k in others:
                 if st.session_state[k] >= excess:
                     st.session_state[k] -= excess
@@ -142,23 +139,15 @@ with st.sidebar:
                     excess -= st.session_state[k]
                     st.session_state[k] = 0
 
-    # A csúszkák, amik a session_state-et használják
     p_ktt = st.slider("KTT (%)", 0, 100, key='KTT', on_change=sync_sliders, args=('KTT',))
     p_gy = st.slider("Gy (%)", 0, 100, key='Gy', on_change=sync_sliders, args=('Gy',))
     p_mj = st.slider("MJ (%)", 0, 100, key='MJ', on_change=sync_sliders, args=('MJ',))
     p_mcs = st.slider("MCs (%)", 0, 100, key='MCs', on_change=sync_sliders, args=('MCs',))
-
-    # A maradék BaBe
     p_babe = max(0, 100 - (p_ktt + p_gy + p_mj + p_mcs))
-    
-    st.info(f"BaBe: {p_babe}%")
-    
     st.info(f"BaBe (maradék): {p_babe}%")
-    st.caption(f"Összesen: {p_ktt + p_gy + p_mj + p_mcs + p_babe}%")
-# --- 3. FELHASZNÁLÓI FELÜLET GOMB UTÁNI RÉSZE ---
 
+# --- SZIMULÁCIÓ ÉS MEGJELENÍTÉS ---
 if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
-    # Valószínűségek előkészítése
     raw_probs = np.array([p_ktt, p_gy, p_mj, p_mcs, p_babe], dtype=float)
     corrected_probs = raw_probs / raw_probs.sum()
 
@@ -169,31 +158,24 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
         'sp_probs': corrected_probs 
     }
     
-    # Adatgyűjtő listák az ismételt futásokhoz
     all_runs_stats = []
     first_df = None 
 
-    # Haladási sáv, hogy a felhasználó lássa, hol tartunk
     progress_text = "Szimulációk futtatása folyamatban..."
     my_bar = st.progress(0, text=progress_text)
     
     for i in range(in_runs):
         current_df = run_forest_simulation(sim_params)
-        
-        # Az első futást külön elmentjük a vizualizációkhoz
         if i == 0:
             first_df = current_df 
         
-        # Statisztikák kigyűjtése ebből a körből
         t_df_curr = current_df[current_df['T'] == 1]
         c_df_curr = current_df[current_df['C'] == 1]
         
-        # Mintakör sűrűség becslése
         c_large = c_df_curr[c_df_curr['height'] > 50]
         c_small = c_df_curr[c_df_curr['height'] <= 50]
-        c_dens = (len(c_large) / area_big_circle) + (len(c_small) / area_small_circles)
+        c_dens = (len(c_large) / area_big_circle) + (len(c_small) / area_small_circles) if area_big_circle > 0 else 0
         
-        # Adatok tárolása
         all_runs_stats.append({
             'valodi_dens': len(current_df)/(width*height),
             'valodi_chew': current_df['chewed'].mean() * 100,
@@ -202,15 +184,11 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
             'circ_dens': c_dens,
             'circ_chew': c_df_curr['chewed'].mean() * 100 if len(c_df_curr)>0 else 0
         })
-        # Haladási sáv frissítése
         my_bar.progress((i + 1) / in_runs)
     
-    my_bar.empty() # Töröljük a sávot, ha végzett
-
-    # Összesített statisztika kiszámítása
+    my_bar.empty()
     stats_summary_df = pd.DataFrame(all_runs_stats)
     
-    # --- ÖSSZESÍTETT TÁBLÁZAT MEGJELENÍTÉSE ---
     summary_table = {
         "Paraméter": ["Sűrűség (db/m²)", "Rágottság (%)"],
         "Valódi (S) Átlag": [
@@ -229,77 +207,40 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
     
     st.subheader(f"📊 Becslési eredmények {in_runs} futás átlagában")
     st.table(pd.DataFrame(summary_table))
-    st.caption("A zárójelben a szórás (SD) látható. Minél kisebb, annál stabilabb a módszer.")
+    st.caption("A zárójelben a szórás (SD) látható.")
     
-    # --- VIZUALIZÁCIÓK ÁTADÁSA ---
-    # Itt mondjuk meg a programnak, hogy a többi grafikon az ELSŐ futást használja
-    df = first_df 
+    df = first_df # A vizualizációkhoz csak az első futást használjuk
 
-    # --- INNENTŐL FOLYTATÓDHAT A KÓDOD A SZÍNES SÁVDIAGRAMMAL ÉS A 3D ÁBRÁVAL ---
-        
-        # Egy látványos, színes sávdiagram HTML/CSS segítségével
-            st.markdown(
-            f"""
-            <div style="display: flex; height: 35px; width: 100%; border-radius: 8px; overflow: hidden; border: 2px solid #ddd; margin-bottom: 20px;">
-                <div style="width: {p_ktt}%; background-color: {species_colors['KTT']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_ktt if p_ktt > 5 else ''}%</div>
-                <div style="width: {p_gy}%; background-color: {species_colors['Gy']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_gy if p_gy > 5 else ''}%</div>
-                <div style="width: {p_mj}%; background-color: {species_colors['MJ']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_mj if p_mj > 5 else ''}%</div>
-                <div style="width: {p_mcs}%; background-color: {species_colors['MCs']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_mcs if p_mcs > 5 else ''}%</div>
-                <div style="width: {p_babe}%; background-color: {species_colors['BaBe']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_babe if p_babe > 5 else ''}%</div>
-            </div>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 20px; font-size: 14px;">
-                <span style="color: {species_colors['KTT']};">■ KTT</span>
-                <span style="color: {species_colors['Gy']};">■ Gy</span>
-                <span style="color: {species_colors['MJ']};">■ MJ</span>
-                <span style="color: {species_colors['MCs']};">■ MCs</span>
-                <span style="color: {species_colors['BaBe']};">■ BaBe</span>
-            </div>
-            """, 
-            unsafe_allow_html=True
-        )
-        st.markdown("---")
-      
-      # --- MAGASSÁG ELOSZLÁSI GÖRBE ---
-        st.subheader("📊 Magasság eloszlás az erdőben")
-        
-        fig_dist, ax_dist = plt.subplots(figsize=(10, 4))
-        
-        # Hisztogram és simított görbe (KDE)
-        sns.histplot(df['height'], kde=True, bins=30, color="forestgreen", ax=ax_dist, stat="density")
-        
-        # Átlag és Módusz jelölése
-        mean_h = df['height'].mean()
-        mode_h = get_weighted_height_mode(df)
-        
-        ax_dist.axvline(mean_h, color='red', linestyle='--', label=f'Átlag: {mean_h:.1f} m')
-        ax_dist.axvline(mode_h, color='blue', linestyle=':', label=f'Módusz: {mode_h:.1f} m')
-        
-        ax_dist.set_xlabel("Magasság (m)")
-        ax_dist.set_ylabel("Gyakoriság")
-        ax_dist.legend()
-        
-        st.pyplot(fig_dist)
-        plt.close(fig_dist)
-        
-        st.markdown("---")
+    st.markdown("---")
+    st.subheader("🌲 A szimulált erdő fafaj-összetétele (Első futás)")
+    
+    st.markdown(
+        f"""
+        <div style="display: flex; height: 35px; width: 100%; border-radius: 8px; overflow: hidden; border: 2px solid #ddd; margin-bottom: 20px;">
+            <div style="width: {p_ktt}%; background-color: {species_colors['KTT']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_ktt if p_ktt > 5 else ''}%</div>
+            <div style="width: {p_gy}%; background-color: {species_colors['Gy']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_gy if p_gy > 5 else ''}%</div>
+            <div style="width: {p_mj}%; background-color: {species_colors['MJ']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_mj if p_mj > 5 else ''}%</div>
+            <div style="width: {p_mcs}%; background-color: {species_colors['MCs']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_mcs if p_mcs > 5 else ''}%</div>
+            <div style="width: {p_babe}%; background-color: {species_colors['BaBe']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_babe if p_babe > 5 else ''}%</div>
+        </div>
+        """, unsafe_allow_html=True
+    )
 
-        # --- 3D ÁBRA ---
-        st.subheader("🧊 Az erdő 3D nézete (Fajok szerint)")
-        fig_3d = plt.figure(figsize=(10, 7))
-        ax3d = fig_3d.add_subplot(111, projection='3d')
-        for sp in sim_params['sp_names']:
-            sp_df = df[df['species'] == sp]
-            if not sp_df.empty:
-                ax3d.scatter(sp_df['X'], sp_df['Y'], sp_df['height'], color=species_colors[sp], s=sp_df['height']*2, alpha=0.7, label=sp)
-                for _, tree in sp_df.iterrows():
-                    ax3d.plot([tree['X'], tree['X']], [tree['Y'], tree['Y']], [0, tree['height']], color='brown', alpha=0.1, linewidth=0.5)
-        ax3d.set_zlim(0, max_height)
-        ax3d.set_xlabel("X (m)")
-        ax3d.set_ylabel("Y (m)")
-        ax3d.set_zlabel("Magasság (m)")
-        ax3d.legend()
-        st.pyplot(fig_3d)
-        plt.close(fig_3d)
+    # --- MAGASSÁG ÉS GRAFIKONOK (Ugyanolyan behúzással, mint a fenti st.markdown) ---
+    st.subheader("📊 Magasság eloszlás")
+    fig_dist, ax_dist = plt.subplots(figsize=(10, 4))
+    sns.histplot(df['height'], kde=True, bins=30, color="forestgreen", ax=ax_dist, stat="density")
+    st.pyplot(fig_dist)
+    
+    st.subheader("🧊 3D Nézet")
+    fig_3d = plt.figure(figsize=(10, 7))
+    ax3d = fig_3d.add_subplot(111, projection='3d')
+    for sp in sim_params['sp_names']:
+        sp_df = df[df['species'] == sp]
+        if not sp_df.empty:
+            ax3d.scatter(sp_df['X'], sp_df['Y'], sp_df['height'], color=species_colors[sp], s=sp_df['height']*2, alpha=0.7, label=sp)
+    st.pyplot(fig_3d)
+
       # --- 4. TRANSZEKT FELÜLNÉZETI TÉRKÉP ---
         st.subheader("🗺️ Transzekt mintavétel felülnézetből")
         fig_map, ax_map = plt.subplots(figsize=(10, 10))
@@ -407,6 +348,7 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
         plt.close(fig_circ)
         
         st.markdown("---")
+
 
 
 
