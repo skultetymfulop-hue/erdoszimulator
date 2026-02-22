@@ -23,7 +23,7 @@ centers_small = [(width/4, height/4), (3*width/4, height/4),
 
 area_big_circle = math.pi * (r_big**2)
 area_small_circles = 4 * (math.pi * (r_small**2))
-L_transsect = math.sqrt(width**2 + height**2) # Átlós transzekt hossza
+L_transsect = math.sqrt(width**2 + height**2)
 
 species_colors = {
     'KTT': '#1f77b4', 'Gy': '#2ca02c', 'MJ': '#ff7f0e', 'MCs': '#d62728', 'BaBe': '#9467bd'
@@ -34,19 +34,14 @@ def point_line_distance(x, y, x1, y1, x2, y2):
     den = math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2)
     return num / den
 
-def get_weighted_height_mode(df_subset, is_transzekt=False):
+# STABILABB: Átlag számítása súlyozva (Transzekthez) vagy anélkül
+def get_weighted_height_mean(df_subset, is_transzekt=False):
     if len(df_subset) == 0: return 0
-    rounded_heights = df_subset['height'].round()
     if is_transzekt:
-        # A transzekt módban is 1/h súlyozás kell a reprezentativitás miatt
-        weights = 1 / df_subset['height']
-        counts = {}
-        for h, w in zip(rounded_heights, weights):
-            counts[h] = counts.get(h, 0) + w
-        return int(max(counts, key=counts.get))
+        # Horvitz-Thompson korrekció az átlaghoz: sum(h * 1/h) / sum(1/h) = n / sum(1/h)
+        return len(df_subset) / (1 / df_subset['height']).sum()
     else:
-        mode_result = stats.mode(rounded_heights, keepdims=True)
-        return int(mode_result.mode[0])
+        return df_subset['height'].mean()
 
 # --- 2. SZIMULÁCIÓS FÜGGVÉNY ---
 def run_forest_simulation(params):
@@ -84,15 +79,21 @@ def run_forest_simulation(params):
     final_coords = accepted[final_keep]
     N_final = len(final_coords)
     
-    shape_k = 2 #2-5 között legyen a görbe lefutását befolyásolja
-    heights = np.clip(np.random.gamma(shape=shape_k, scale=params['scale']/(shape_k-1), size=N_final), min_height, max_height)
+    # --- JAVÍTOTT MAGASSÁG GENERÁLÁS ---
+    shape_k = params['shape_k']
+    target_mode = params['mode']
+    # Scale kiszámítása a móduszból: mode = (shape-1)*theta
+    theta = target_mode / (shape_k - 1)
+    
+    heights = np.random.gamma(shape=shape_k, scale=theta, size=N_final)
+    heights = np.clip(heights, min_height, max_height)
+    
     fajok = np.random.choice(params['sp_names'], size=N_final, p=params['sp_probs'])
     ragottsag = np.random.uniform(0, 100, size=N_final) < params['chewed_p']
     
     results = []
     for i in range(N_final):
         x, y, h = final_coords[i,0], final_coords[i,1], heights[i]
-        # Transzekt észlelés: távolság <= h
         in_t = 1 if point_line_distance(x, y, 0, 0, width, height) <= h else 0
         in_c = 0
         if h > 50 and math.dist((x, y), center_big) <= r_big: in_c = 1
@@ -110,7 +111,11 @@ def run_forest_simulation(params):
 with st.sidebar:
     st.header("⚙️ Beállítások")
     in_intensity = st.slider("Cél sűrűség (db/cm²)", 0.00005, 0.005, 0.0020, step=0.00005, format="%.5f")
-    in_scale = st.slider("Magasság scale (módusz)", 5, 50, 15)
+    
+    # ÚJ CSÚSZKÁK A KAVARODÁS ELLEN
+    in_mode = st.slider("Leggyakoribb magasság (módusz)", 5, 50, 15)
+    in_shape = st.slider("Változatosság (alacsonyabb = több óriás fa)", 1.2, 5.0, 2.0)
+    
     in_grav_str = st.slider("Sűrűsödési erő", 0, 10, 3)
     in_chewed = st.slider("Valódi rágottság (%)", 0, 100, 30)
     in_runs = st.slider("Szimulációs futások száma", 2, 100, 5)
@@ -146,7 +151,7 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
     corrected_probs = raw_probs / raw_probs.sum()
 
     sim_params = {
-        'intensity': in_intensity, 'scale': in_scale, 'grav_str': in_grav_str,
+        'intensity': in_intensity, 'mode': in_mode, 'shape_k': in_shape, 'grav_str': in_grav_str,
         'chewed_p': in_chewed,
         'sp_names': ['KTT', 'Gy', 'MJ', 'MCs', 'BaBe'],
         'sp_probs': corrected_probs 
@@ -159,42 +164,38 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
 
     for i in range(in_runs):
         current_df = run_forest_simulation(sim_params)
-        
         t_df = current_df[current_df['T'] == 1]
         c_df = current_df[current_df['C'] == 1]
         
-        # 1. VALÓDI SŰRŰSÉG (S_density)
+        # 1. VALÓDI ÉRTÉKEK
         s_dens = len(current_df) / (width * height)
-        s_scale = get_weighted_height_mode(current_df)
+        s_height_avg = get_weighted_height_mean(current_df)
         s_chew = current_df['chewed'].mean() * 100
 
-        # 2. TRANSZEKT BECSLÉS (T_density) - ÚJ MATEK
+        # 2. TRANSZEKT BECSLÉS
         if len(t_df) > 0:
-            # Horvitz-Thompson: sum( 1 / (2 * h * L) )
             t_density = (1 / (2.0 * t_df['height'] * L_transsect)).sum()
+            t_height_avg = get_weighted_height_mean(t_df, is_transzekt=True)
+            t_chew = t_df['chewed'].mean() * 100
         else:
-            t_density = 0.0
+            t_density = t_height_avg = t_chew = 0.0
         
-        t_scale = get_weighted_height_mode(t_df, is_transzekt=True) if len(t_df) > 0 else 0
-        t_chew = t_df['chewed'].mean() * 100 if len(t_df) > 0 else 0
-
-        # 3. MINTAKÖRÖS BECSLÉS (C_density)
+        # 3. MINTAKÖRÖS BECSLÉS
         c_small = c_df[c_df['height'] <= 50]
         c_large = c_df[c_df['height'] > 50]
         d_small = (len(c_small) / area_small_circles) if area_small_circles > 0 else 0
         d_big = (len(c_large) / area_big_circle) if area_big_circle > 0 else 0
         c_dens = d_small + d_big
-        
-        c_scale = get_weighted_height_mode(c_df) if len(c_df) > 0 else 0
+        c_height_avg = get_weighted_height_mean(c_df)
         c_chew = c_df['chewed'].mean() * 100 if len(c_df) > 0 else 0
 
-        # MAPE számítás
+        # MAPE számítás (Módusz helyett Átlagmagasságra a stabilitásért)
         all_runs_errors.append({
             't_err_dens': abs((s_dens - t_density) / s_dens) if s_dens > 0 else 0,
-            't_err_scale': abs((s_scale - t_scale) / s_scale) if s_scale > 0 else 0,
+            't_err_height': abs((s_height_avg - t_height_avg) / s_height_avg) if s_height_avg > 0 else 0,
             't_err_chew': abs((s_chew - t_chew) / s_chew) if s_chew > 0 else 0,
             'c_err_dens': abs((s_dens - c_dens) / s_dens) if s_dens > 0 else 0,
-            'c_err_scale': abs((s_scale - c_scale) / s_scale) if s_scale > 0 else 0,
+            'c_err_height': abs((s_height_avg - c_height_avg) / s_height_avg) if s_height_avg > 0 else 0,
             'c_err_chew': abs((s_chew - c_chew) / s_chew) if s_chew > 0 else 0
         })
 
@@ -212,47 +213,25 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
     # --- TÁBLÁZATOK ---
     errors_df = pd.DataFrame(all_runs_errors)
     mape_table = {
-        "Sorok (MAPE)": ["MAPE_density", "MAPE_scale", "MAPE_chewed"],
+        "Sorok (MAPE)": ["MAPE_density", "MAPE_height_avg", "MAPE_chewed"],
         "Transzekt (T)": [
             f"{errors_df['t_err_dens'].mean()*100:.2f}%", 
-            f"{errors_df['t_err_scale'].mean()*100:.2f}%", 
+            f"{errors_df['t_err_height'].mean()*100:.2f}%", 
             f"{errors_df['t_err_chew'].mean()*100:.2f}%"
         ],
         "Mintakör (C)": [
             f"{errors_df['c_err_dens'].mean()*100:.2f}%", 
-            f"{errors_df['c_err_scale'].mean()*100:.2f}%", 
+            f"{errors_df['c_err_height'].mean()*100:.2f}%", 
             f"{errors_df['c_err_chew'].mean()*100:.2f}%"
         ]
     }
     st.subheader(f"📈 MAPE eredmények ({in_runs} futás alapján)")
     st.table(pd.DataFrame(mape_table))
 
-    summary_table = {
-        "Paraméter": ["Darabszám (count)", "Sűrűség (density)", "Rágottság (chewed_%)"],
-        "Szimuláció (S)": [
-            f"{first_run_stats['S_count']} db", 
-            f"{first_run_stats['S_density']:.5f}", 
-            f"{first_run_stats['S_chewed']:.1f}%"
-        ],
-        "Transzekt (T)": [
-            f"{first_run_stats['T_count']} db", 
-            f"{first_run_stats['T_density']:.5f}", 
-            f"{first_run_stats['T_chewed']:.1f}%"
-        ],
-        "Mintakör (C)": [
-            f"{first_run_stats['C_count']} db", 
-            f"{first_run_stats['C_density']:.5f}", 
-            f"{first_run_stats['C_chewed']:.1f}%"
-        ]
-    }
-    st.subheader("📊 Az első futás részletes eredményei")
-    st.table(pd.DataFrame(summary_table))
-
-    # --- VIZUALIZÁCIÓ (Meglévő grafikonok) ---
+    # (A többi vizualizációs kódod változatlan marad...)
     df = first_df
     st.markdown("---")
     st.subheader("🌲 A szimulált erdő fafaj-összetétele")
-    # ... (FAFAS BAR KÓDJA) ...
     st.markdown(f"""
         <div style="display: flex; height: 35px; width: 100%; border-radius: 8px; overflow: hidden; border: 2px solid #ddd; margin-bottom: 20px;">
             <div style="width: {p_ktt}%; background-color: {species_colors['KTT']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_ktt if p_ktt > 5 else ''}%</div>
@@ -308,6 +287,3 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
     ax_chew.bar(spec_chew.index, spec_chew.values, color=[species_colors.get(x) for x in spec_chew.index])
     ax_chew.axhline(in_chewed, color='red', linestyle='--', label='Cél')
     st.pyplot(fig_chew)
-
-
-
