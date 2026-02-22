@@ -84,7 +84,7 @@ def run_forest_simulation(params):
     final_coords = accepted[final_keep]
     N_final = len(final_coords)
     
-    shape_k = 5.0
+    shape_k = 2.5 #2-5 között legyen a görbe lefutását befolyásolja
     heights = np.clip(np.random.gamma(shape=shape_k, scale=params['scale']/(shape_k-1), size=N_final), min_height, max_height)
     fajok = np.random.choice(params['sp_names'], size=N_final, p=params['sp_probs'])
     ragottsag = np.random.uniform(0, 100, size=N_final) < params['chewed_p']
@@ -109,7 +109,7 @@ def run_forest_simulation(params):
 # --- 3. FELHASZNÁLÓI FELÜLET ---
 with st.sidebar:
     st.header("⚙️ Beállítások")
-    in_intensity = st.slider("Cél sűrűség (db/m²)", 0.00005, 0.005, 0.0020, step=0.00005, format="%.5f")
+    in_intensity = st.slider("Cél sűrűség (db/cm²)", 0.00005, 0.005, 0.0020, step=0.00005, format="%.5f")
     in_scale = st.slider("Magasság scale (módusz)", 5, 50, 15)
     in_grav_str = st.slider("Sűrűsödési erő", 0, 10, 3)
     in_chewed = st.slider("Valódi rágottság (%)", 0, 100, 30)
@@ -308,3 +308,4 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
     ax_chew.bar(spec_chew.index, spec_chew.values, color=[species_colors.get(x) for x in spec_chew.index])
     ax_chew.axhline(in_chewed, color='red', linestyle='--', label='Cél')
     st.pyplot(fig_chew)
+
