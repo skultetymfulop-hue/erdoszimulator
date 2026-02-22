@@ -227,6 +227,26 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
     }
     st.subheader(f"📈 MAPE eredmények ({in_runs} futás alapján)")
     st.table(pd.DataFrame(mape_table))
+    summary_table = {
+        "Paraméter": ["Darabszám (count)", "Sűrűség (density)", "Rágottság (chewed_%)"],
+        "Szimuláció (S)": [
+            f"{first_run_stats['S_count']} db", 
+            f"{first_run_stats['S_density']:.5f}", 
+            f"{first_run_stats['S_chewed']:.1f}%"
+        ],
+        "Transzekt (T)": [
+            f"{first_run_stats['T_count']} db", 
+            f"{first_run_stats['T_density']:.5f}", 
+            f"{first_run_stats['T_chewed']:.1f}%"
+        ],
+        "Mintakör (C)": [
+            f"{first_run_stats['C_count']} db", 
+            f"{first_run_stats['C_density']:.5f}", 
+            f"{first_run_stats['C_chewed']:.1f}%"
+        ]
+    }
+    st.subheader("📊 Az első futás részletes eredményei")
+    st.table(pd.DataFrame(summary_table))
 
     # (A többi vizualizációs kódod változatlan marad...)
     df = first_df
@@ -287,3 +307,4 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
     ax_chew.bar(spec_chew.index, spec_chew.values, color=[species_colors.get(x) for x in spec_chew.index])
     ax_chew.axhline(in_chewed, color='red', linestyle='--', label='Cél')
     st.pyplot(fig_chew)
+
