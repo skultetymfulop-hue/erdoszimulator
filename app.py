@@ -276,7 +276,7 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
             sp_df = df[df['species'] == sp]
             if not sp_df.empty:
                 ax3d.scatter(sp_df['X'], sp_df['Y'], sp_df['height'], color=species_colors[sp], s=sp_df['height'], alpha=0.6)
-                ax3d.set_zlim(0, 1500) # Z-tengely skálája
+                ax3d.set_zlim(0, 200) # Z-tengely skálája
         st.pyplot(fig_3d)
         plt.close(fig_3d)
 
@@ -308,6 +308,7 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
     ax_chew.bar(spec_chew.index, spec_chew.values, color=[species_colors.get(x) for x in spec_chew.index])
     ax_chew.axhline(in_chewed, color='red', linestyle='--', label='Cél')
     st.pyplot(fig_chew)
+
 
 
 
