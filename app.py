@@ -267,17 +267,33 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
 
     # (A többi vizualizációs kódod változatlan marad...)
     df = first_df
+   # --- ELEGYARÁNY VIZUALIZÁCIÓ (S, T, C) ---
     st.markdown("---")
-    st.subheader("🌲 A szimulált erdő fafaj-összetétele")
-    st.markdown(f"""
-        <div style="display: flex; height: 35px; width: 100%; border-radius: 8px; overflow: hidden; border: 2px solid #ddd; margin-bottom: 20px;">
-            <div style="width: {p_ktt}%; background-color: {species_colors['KTT']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_ktt if p_ktt > 5 else ''}%</div>
-            <div style="width: {p_gy}%; background-color: {species_colors['Gy']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_gy if p_gy > 5 else ''}%</div>
-            <div style="width: {p_mj}%; background-color: {species_colors['MJ']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_mj if p_mj > 5 else ''}%</div>
-            <div style="width: {p_mcs}%; background-color: {species_colors['MCs']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_mcs if p_mcs > 5 else ''}%</div>
-            <div style="width: {p_babe}%; background-color: {species_colors['BaBe']}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 12px;">{p_babe if p_babe > 5 else ''}%</div>
-        </div>""", unsafe_allow_html=True)
+    st.subheader("🌲 Fafaj-összetétel összehasonlítása (Első futás)")
 
+    def get_species_percentages(dataframe, species_list):
+        if len(dataframe) == 0:
+            return [0] * len(species_list)
+        counts = dataframe['species'].value_counts(normalize=True) * 100
+        return [counts.get(sp, 0) for sp in species_list]
+
+    # Százalékok kiszámítása
+    sp_list = ['KTT', 'Gy', 'MJ', 'MCs', 'BaBe']
+    s_percents = [p_ktt, p_gy, p_mj, p_mcs, p_babe] # A megadott paraméterek
+    t_percents = get_species_percentages(first_df[first_df['T'] == 1], sp_list)
+    c_percents = get_species_percentages(first_df[first_df['C'] == 1], sp_list)
+
+    def draw_species_bar(label, percents):
+        cols_html = "".join([
+            f'<div style="width: {p}%; background-color: {species_colors[sp]}; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 10px; min-width: 0; overflow: hidden;">{f"{p:.1f}%" if p > 5 else ""}</div>'
+            for p, sp in zip(percents, sp_list) if p > 0
+        ])
+        st.write(f"**{label}**")
+        st.markdown(f'<div style="display: flex; height: 30px; width: 100%; border-radius: 5px; overflow: hidden; border: 1px solid #ddd; margin-bottom: 10px;">{cols_html}</div>', unsafe_allow_html=True)
+
+    draw_species_bar("Valódi összetétel (S)", s_percents)
+    draw_species_bar("Transzekt becslés (T)", t_percents)
+    draw_species_bar("Mintakör becslés (C)", c_percents)
     col1, col2 = st.columns(2)
     with col1:
         st.subheader("📊 Magasság eloszlás")
@@ -325,6 +341,7 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
     ax_chew.bar(spec_chew.index, spec_chew.values, color=[species_colors.get(x) for x in spec_chew.index])
     ax_chew.axhline(in_chewed, color='red', linestyle='--', label='Cél')
     st.pyplot(fig_chew)
+
 
 
 
