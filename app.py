@@ -181,13 +181,30 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
             t_density = t_height_avg = t_chew = 0.0
         
         # 3. MINTAKÖRÖS BECSLÉS
+       # 3. MINTAKÖRÖS BECSLÉS (Javított, rétegzett súlyozással)
         c_small = c_df[c_df['height'] <= 50]
         c_large = c_df[c_df['height'] > 50]
+        
+        # Sűrűség számítása rétegenként
         d_small = (len(c_small) / area_small_circles) if area_small_circles > 0 else 0
         d_big = (len(c_large) / area_big_circle) if area_big_circle > 0 else 0
         c_dens = d_small + d_big
-        c_height_avg = get_weighted_height_mean(c_df)
-        c_chew = c_df['chewed'].mean() * 100 if len(c_df) > 0 else 0
+
+        # Súlyozott átlagmagasság és rágottság számítása
+        if c_dens > 0:
+            # Rétegátlagok kiszámítása
+            avg_h_small = c_small['height'].mean() if len(c_small) > 0 else 0
+            avg_h_large = c_large['height'].mean() if len(c_large) > 0 else 0
+            
+            avg_chew_small = c_small['chewed'].mean() if len(c_small) > 0 else 0
+            avg_chew_large = c_large['chewed'].mean() if len(c_large) > 0 else 0
+
+            # Súlyozás a becsült sűrűségek (D) alapján
+            c_height_avg = (d_small * avg_h_small + d_big * avg_h_large) / c_dens
+            c_chew = ((d_small * avg_chew_small + d_big * avg_chew_large) / c_dens) * 100
+        else:
+            c_height_avg = 0
+            c_chew = 0
 
         # MAPE számítás (Módusz helyett Átlagmagasságra a stabilitásért)
         all_runs_errors.append({
@@ -308,6 +325,7 @@ if st.button("SZIMULÁCIÓ FUTTATÁSA", use_container_width=True):
     ax_chew.bar(spec_chew.index, spec_chew.values, color=[species_colors.get(x) for x in spec_chew.index])
     ax_chew.axhline(in_chewed, color='red', linestyle='--', label='Cél')
     st.pyplot(fig_chew)
+
 
 
 
